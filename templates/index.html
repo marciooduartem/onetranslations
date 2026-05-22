@@ -1,0 +1,268 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>One Translations — Conversor PDF → Word</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: Arial, sans-serif; background: #f5f5f5; min-height: 100vh; display: flex; align-items: flex-start; justify-content: center; padding: 2rem 1rem; }
+  .app { background: #fff; border-radius: 12px; box-shadow: 0 2px 16px rgba(0,0,0,0.08); padding: 2rem; width: 100%; max-width: 580px; }
+  .header { display: flex; align-items: center; gap: 12px; margin-bottom: 1.5rem; padding-bottom: 1.5rem; border-bottom: 1px solid #eee; }
+  .logo { width: 40px; height: 40px; background: #1a1a1a; border-radius: 8px; display: flex; align-items: center; justify-content: center; color: #fff; font-weight: 700; font-size: 14px; flex-shrink: 0; }
+  .header-text h1 { font-size: 16px; font-weight: 600; }
+  .header-text p { font-size: 12px; color: #888; margin-top: 2px; }
+  .card { background: #fafafa; border: 1px solid #eee; border-radius: 10px; padding: 1.1rem; margin-bottom: 1rem; }
+  .card-label { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.06em; color: #888; margin-bottom: 10px; display: block; }
+  input[type="password"] { width: 100%; padding: 10px 12px; border: 1px solid #ddd; border-radius: 8px; font-size: 13px; font-family: monospace; outline: none; }
+  input:focus { border-color: #1a1a1a; }
+  .hint { font-size: 12px; color: #aaa; margin-top: 6px; }
+  .hint a { color: #666; }
+  .mode-row { display: flex; gap: 8px; margin-bottom: 10px; }
+  .mode-btn { flex: 1; padding: 10px; font-size: 13px; font-weight: 500; border-radius: 8px; cursor: pointer; border: 1.5px solid #e0e0e0; background: #fff; color: #888; transition: all 0.15s; }
+  .mode-btn.active { background: #1a1a1a; color: #fff; border-color: #1a1a1a; }
+  .toggle-row { display: flex; align-items: flex-start; gap: 10px; padding: 10px 12px; border-radius: 8px; border: 1px solid #e0e0e0; cursor: pointer; margin-top: 8px; transition: background 0.15s; user-select: none; }
+  .toggle-row.active { background: #f0f0f0; border-color: #ccc; }
+  .checkbox { width: 18px; height: 18px; border: 2px solid #ccc; border-radius: 4px; flex-shrink: 0; display: flex; align-items: center; justify-content: center; margin-top: 1px; transition: all 0.15s; }
+  .checkbox.checked { background: #1a1a1a; border-color: #1a1a1a; color: #fff; font-size: 11px; }
+  .toggle-text strong { font-size: 13px; display: block; }
+  .toggle-text span { font-size: 12px; color: #888; margin-top: 2px; display: block; }
+  .drop-zone { border: 2px dashed #ddd; border-radius: 10px; padding: 2rem; text-align: center; cursor: pointer; transition: background 0.15s; }
+  .drop-zone:hover, .drop-zone.over { background: #f0f0f0; border-color: #bbb; }
+  .drop-zone p { font-size: 14px; color: #888; }
+  .drop-zone strong { color: #1a1a1a; }
+  .file-pill { display: none; align-items: center; gap: 10px; background: #f0f0f0; border-radius: 8px; padding: 10px 14px; }
+  .file-pill.show { display: flex; }
+  .file-name { flex: 1; font-size: 13px; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .file-size { font-size: 12px; color: #888; flex-shrink: 0; }
+  .remove-btn { background: none; border: none; cursor: pointer; color: #aaa; font-size: 20px; line-height: 1; padding: 0; flex-shrink: 0; }
+  .convert-btn { width: 100%; padding: 13px; font-size: 15px; font-weight: 600; background: #1a1a1a; color: #fff; border: none; border-radius: 10px; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 8px; transition: opacity 0.15s; margin-top: 4px; }
+  .convert-btn:disabled { opacity: 0.35; cursor: not-allowed; }
+  .convert-btn:not(:disabled):hover { opacity: 0.85; }
+  .progress-wrap { display: none; margin-top: 1rem; }
+  .progress-wrap.show { display: block; }
+  .progress-labels { display: flex; justify-content: space-between; font-size: 13px; color: #888; margin-bottom: 6px; }
+  .progress-bar { height: 5px; background: #eee; border-radius: 99px; overflow: hidden; }
+  .progress-fill { height: 100%; background: #1a1a1a; border-radius: 99px; transition: width 0.4s; width: 0%; }
+  .result { display: none; margin-top: 1rem; border-radius: 10px; padding: 14px 16px; }
+  .result.show { display: block; }
+  .result.success { background: #f0fff4; border: 1px solid #b7eac8; }
+  .result.error { background: #fff0f0; border: 1px solid #fcc; }
+  .result-title { font-weight: 600; font-size: 14px; margin-bottom: 4px; }
+  .result.success .result-title { color: #2d7d46; }
+  .result.error .result-title { color: #c0392b; }
+  .result-sub { font-size: 12px; color: #888; }
+  .hidden { display: none !important; }
+</style>
+</head>
+<body>
+<div class="app">
+  <div class="header">
+    <div class="logo">OT</div>
+    <div class="header-text">
+      <h1>One Translations</h1>
+      <p>Conversor PDF → Word editável</p>
+    </div>
+  </div>
+
+  <!-- Modo -->
+  <div class="card">
+    <span class="card-label">Tipo de formatação</span>
+    <div class="mode-row">
+      <button class="mode-btn active" id="btn-simples" onclick="setMode('simples')">📄 Formatação Simples</button>
+      <button class="mode-btn" id="btn-juramentado" onclick="setMode('juramentado')">📜 Tradução Juramentada</button>
+    </div>
+
+    <div class="toggle-row" id="api-toggle" onclick="toggleApi()">
+      <div class="checkbox" id="api-check"></div>
+      <div class="toggle-text">
+        <strong>🤖 Usar IA (API Claude)</strong>
+        <span id="api-hint-text">Máxima fidelidade. Necessário para PDFs escaneados.</span>
+      </div>
+    </div>
+
+    <div class="toggle-row hidden" id="cetra-toggle" onclick="toggleCetra()" style="margin-top:8px;">
+      <div class="checkbox" id="cetra-check"></div>
+      <div class="toggle-text">
+        <strong>Modo CETRA</strong>
+        <span>Bilíngue inglês/outro idioma — mantém apenas inglês no texto corrido</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- API Key (só aparece quando IA ativada) -->
+  <div class="card hidden" id="api-key-card">
+    <span class="card-label">Chave da API Anthropic</span>
+    <input type="password" id="api-key" placeholder="sk-ant-api03-..." oninput="updateBtn()" />
+    <p class="hint">Obtenha em <a href="https://console.anthropic.com/settings/keys" target="_blank">console.anthropic.com</a> → API Keys</p>
+  </div>
+
+  <!-- Upload -->
+  <div class="card">
+    <span class="card-label">Documento PDF</span>
+    <div class="drop-zone" id="drop-zone"
+      onclick="document.getElementById('file-input').click()"
+      ondragover="ev.preventDefault();this.classList.add('over')"
+      ondragleave="this.classList.remove('over')"
+      ondrop="handleDrop(event)">
+      <div style="font-size:28px;margin-bottom:8px">📂</div>
+      <p><strong>Clique para selecionar</strong> ou arraste o PDF aqui</p>
+      <p style="font-size:12px;margin-top:4px;color:#aaa">PDFs digitais e escaneados</p>
+    </div>
+    <div class="file-pill" id="file-pill">
+      <span style="font-size:20px">📋</span>
+      <span class="file-name" id="file-name"></span>
+      <span class="file-size" id="file-size"></span>
+      <button class="remove-btn" onclick="removeFile()">×</button>
+    </div>
+    <input type="file" id="file-input" accept=".pdf" style="display:none" onchange="handleFile(this.files[0])">
+  </div>
+
+  <button class="convert-btn" id="convert-btn" disabled onclick="startConversion()">
+    ✨ Converter PDF → Word
+  </button>
+
+  <div class="progress-wrap" id="progress-wrap">
+    <div class="progress-labels">
+      <span id="prog-text">Processando...</span>
+      <span id="prog-pct">0%</span>
+    </div>
+    <div class="progress-bar"><div class="progress-fill" id="prog-fill"></div></div>
+  </div>
+
+  <div class="result" id="result-box">
+    <div class="result-title" id="result-title"></div>
+    <div class="result-sub" id="result-sub"></div>
+  </div>
+</div>
+
+<script>
+let selectedFile = null;
+let mode = 'simples';
+let apiActive = false;
+let cetraActive = false;
+
+function setMode(m) {
+  mode = m;
+  document.getElementById('btn-simples').classList.toggle('active', m === 'simples');
+  document.getElementById('btn-juramentado').classList.toggle('active', m === 'juramentado');
+  const cetraSection = document.getElementById('cetra-toggle');
+  if (m === 'juramentado') cetraSection.classList.remove('hidden');
+  else { cetraSection.classList.add('hidden'); cetraActive = false; updateCheckbox('cetra-check', false); document.getElementById('cetra-toggle').classList.remove('active'); }
+  document.getElementById('api-hint-text').textContent = m === 'juramentado'
+    ? 'Recomendado para juramentada — garante substituições de brasão, carimbo, assinatura...'
+    : 'Máxima fidelidade. Necessário para PDFs escaneados.';
+  updateBtn();
+}
+
+function toggleApi() {
+  apiActive = !apiActive;
+  document.getElementById('api-toggle').classList.toggle('active', apiActive);
+  updateCheckbox('api-check', apiActive);
+  document.getElementById('api-key-card').classList.toggle('hidden', !apiActive);
+  updateBtn();
+}
+
+function toggleCetra() {
+  cetraActive = !cetraActive;
+  document.getElementById('cetra-toggle').classList.toggle('active', cetraActive);
+  updateCheckbox('cetra-check', cetraActive);
+}
+
+function updateCheckbox(id, checked) {
+  const el = document.getElementById(id);
+  el.classList.toggle('checked', checked);
+  el.textContent = checked ? '✓' : '';
+}
+
+function handleDrop(e) {
+  e.preventDefault();
+  document.getElementById('drop-zone').classList.remove('over');
+  handleFile(e.dataTransfer.files[0]);
+}
+
+function handleFile(file) {
+  if (!file || file.type !== 'application/pdf') return;
+  selectedFile = file;
+  document.getElementById('drop-zone').style.display = 'none';
+  const pill = document.getElementById('file-pill');
+  pill.classList.add('show');
+  document.getElementById('file-name').textContent = file.name;
+  document.getElementById('file-size').textContent = (file.size/1024/1024).toFixed(1) + ' MB';
+  updateBtn();
+}
+
+function removeFile() {
+  selectedFile = null;
+  document.getElementById('drop-zone').style.display = '';
+  document.getElementById('file-pill').classList.remove('show');
+  document.getElementById('file-input').value = '';
+  updateBtn();
+}
+
+function updateBtn() {
+  const apiKey = document.getElementById('api-key').value.trim();
+  const needsKey = apiActive && !apiKey;
+  document.getElementById('convert-btn').disabled = !selectedFile || needsKey;
+}
+
+function setProgress(text, pct) {
+  document.getElementById('prog-text').textContent = text;
+  document.getElementById('prog-pct').textContent = pct + '%';
+  document.getElementById('prog-fill').style.width = pct + '%';
+}
+
+function showResult(success, title, sub) {
+  const box = document.getElementById('result-box');
+  box.className = 'result show ' + (success ? 'success' : 'error');
+  document.getElementById('result-title').textContent = (success ? '✅ ' : '❌ ') + title;
+  document.getElementById('result-sub').textContent = sub || '';
+}
+
+async function startConversion() {
+  if (!selectedFile) return;
+  const apiKey = document.getElementById('api-key').value.trim();
+
+  document.getElementById('convert-btn').disabled = true;
+  document.getElementById('progress-wrap').classList.add('show');
+  document.getElementById('result-box').className = 'result';
+  setProgress('Enviando arquivo...', 10);
+
+  try {
+    const formData = new FormData();
+    formData.append('file', selectedFile);
+    formData.append('mode', mode);
+    formData.append('use_api', apiActive ? 'true' : 'false');
+    formData.append('cetra', cetraActive ? 'true' : 'false');
+    formData.append('api_key', apiKey);
+
+    setProgress('Convertendo...', 30);
+
+    const resp = await fetch('/convert', { method: 'POST', body: formData });
+
+    if (!resp.ok) {
+      const err = await resp.json();
+      throw new Error(err.error || 'Erro na conversão');
+    }
+
+    setProgress('Baixando arquivo...', 90);
+    const blob = await resp.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = selectedFile.name.replace('.pdf', '_convertido.docx');
+    a.click();
+    URL.revokeObjectURL(url);
+
+    setProgress('Concluído!', 100);
+    showResult(true, 'Download iniciado! Verifique sua pasta de Downloads.');
+
+  } catch(e) {
+    showResult(false, 'Erro na conversão', e.message);
+  } finally {
+    document.getElementById('convert-btn').disabled = false;
+  }
+}
+</script>
+</body>
+</html>
