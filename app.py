@@ -112,6 +112,65 @@ def extract_page_claude(image_bytes, page_num, api_key, mode, cetra):
     raw = data["content"][0]["text"].strip().replace("```json","").replace("```","").strip()
     return json.loads(raw)
 
+# ── EXTRAÇÃO JURAMENTADA SEM IA (PDF digital) ────────────────────
+def extract_juramentado_digital(pdf_path):
+    """
+    Extrai texto de PDF digital e formata como juramentado:
+    - Texto corrido linha por linha
+    - Linha vazia entre parágrafos
+    - Sem substituições visuais automáticas (usuário já deve ter feito isso)
+    """
+    doc = fitz.open(str(pdf_path))
+    all_pages = []
+
+    for page_num in range(len(doc)):
+        page = doc[page_num]
+        # Extrair blocos de texto com posição
+        blocks = page.get_text("blocks")
+        # Ordenar por posição vertical depois horizontal
+        blocks.sort(key=lambda b: (round(b[1]/10)*10, b[0]))
+
+        linhas = []
+        prev_y = None
+
+        for block in blocks:
+            if block[6] != 0:  # ignorar imagens (tipo != 0)
+                continue
+            text = block[4].strip()
+            if not text:
+                continue
+
+            y = block[1]
+            # Se há salto vertical significativo, adicionar linha em branco
+            if prev_y is not None and (y - prev_y) > 20:
+                linhas.append("")
+
+            # Quebrar em linhas internas
+            for linha in text.split('\n'):
+                linha = linha.strip()
+                if linha:
+                    linhas.append(linha)
+
+            prev_y = block[3]  # y final do bloco
+
+        # Remover linhas em branco duplas consecutivas
+        clean = []
+        prev_empty = False
+        for l in linhas:
+            if l == "":
+                if not prev_empty:
+                    clean.append(l)
+                prev_empty = True
+            else:
+                clean.append(l)
+                prev_empty = False
+
+        all_pages.append({"linhas": clean})
+
+    doc.close()
+    return all_pages
+
+
 # ── CONSTRUTOR DE DOCX PARA JURAMENTADO (linhas) ─────────────────
 def build_docx_juramentado(all_pages, output_path):
     from docx import Document
@@ -304,19 +363,19 @@ def convert():
     try:
         scanned = is_scanned(pdf_path)
 
-        if not use_api and not scanned and mode == "simples":
-            # PDF digital + simples + sem IA → conversão direta
-            convert_direct(pdf_path, output_path)
+        if mode == "juramentado" and not use_api:
+            # Juramentado SEM IA — extrai texto digitalmente e aplica regras
+            if scanned:
+                return jsonify({"error": "PDF escaneado requer IA ativada para tradução juramentada. Ative o toggle 'Usar IA' e cole sua chave."}), 400
+            all_pages = extract_juramentado_digital(pdf_path)
+            build_docx_juramentado(all_pages, output_path)
 
-        elif use_api or scanned:
-            # Usa API Claude
+        elif mode == "juramentado" and use_api:
+            # Juramentado COM IA
             if not api_key:
-                return jsonify({"error": "Chave de API necessária para este tipo de conversão"}), 400
-
+                return jsonify({"error": "Cole sua chave de API para usar a IA."}), 400
             doc = fitz.open(str(pdf_path))
             all_pages = []
-            detected_langs = set()
-
             for page_num in range(len(doc)):
                 page = doc[page_num]
                 mat = fitz.Matrix(1.5, 1.5)
@@ -325,20 +384,33 @@ def convert():
                 try:
                     data = extract_page_claude(img_bytes, page_num + 1, api_key, mode, cetra)
                     all_pages.append(data)
-                    if data.get("idioma"):
-                        detected_langs.add(data["idioma"])
+                except Exception as e:
+                    all_pages.append({"linhas": [f"[Erro na página {page_num+1}: {str(e)}]"]})
+            doc.close()
+            build_docx_juramentado(all_pages, output_path)
+
+        elif not use_api and not scanned:
+            # Simples + PDF digital + sem IA → conversão direta
+            convert_direct(pdf_path, output_path)
+
+        else:
+            # Simples com IA ou PDF escaneado
+            if not api_key:
+                return jsonify({"error": "Chave de API necessária para PDFs escaneados ou quando a IA está ativada."}), 400
+            doc = fitz.open(str(pdf_path))
+            all_pages = []
+            for page_num in range(len(doc)):
+                page = doc[page_num]
+                mat = fitz.Matrix(1.5, 1.5)
+                pix = page.get_pixmap(matrix=mat)
+                img_bytes = pix.tobytes("jpeg")
+                try:
+                    data = extract_page_claude(img_bytes, page_num + 1, api_key, mode, cetra)
+                    all_pages.append(data)
                 except Exception as e:
                     all_pages.append({"blocks": [{"type": "paragraph", "runs": [{"text": f"[Erro na página {page_num+1}: {str(e)}]"}], "align": "left"}]})
             doc.close()
-            # Usar builder correto conforme o modo
-            if mode == "juramentado":
-                build_docx_juramentado(all_pages, output_path)
-            else:
-                build_docx_from_json(all_pages, output_path, mode)
-
-        else:
-            # Fallback: conversão direta
-            convert_direct(pdf_path, output_path)
+            build_docx_from_json(all_pages, output_path, mode)
 
         original_name = Path(file.filename).stem
         return send_file(
