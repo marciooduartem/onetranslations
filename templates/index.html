@@ -23,19 +23,20 @@
   .mode-btn.active { background: #1a1a1a; color: #fff; border-color: #1a1a1a; }
   .toggle-row { display: flex; align-items: flex-start; gap: 10px; padding: 10px 12px; border-radius: 8px; border: 1px solid #e0e0e0; cursor: pointer; margin-top: 8px; transition: background 0.15s; user-select: none; }
   .toggle-row.active { background: #f0f0f0; border-color: #ccc; }
-  .checkbox { width: 18px; height: 18px; border: 2px solid #ccc; border-radius: 4px; flex-shrink: 0; display: flex; align-items: center; justify-content: center; margin-top: 1px; transition: all 0.15s; }
-  .checkbox.checked { background: #1a1a1a; border-color: #1a1a1a; color: #fff; font-size: 11px; }
+  .checkbox { width: 18px; height: 18px; border: 2px solid #ccc; border-radius: 4px; flex-shrink: 0; display: flex; align-items: center; justify-content: center; margin-top: 1px; transition: all 0.15s; font-size: 11px; color: #fff; }
+  .checkbox.checked { background: #1a1a1a; border-color: #1a1a1a; }
   .toggle-text strong { font-size: 13px; display: block; }
   .toggle-text span { font-size: 12px; color: #888; margin-top: 2px; display: block; }
+  .info-box { background: #f0f7ff; border: 1px solid #cce0ff; border-radius: 8px; padding: 10px 12px; margin-top: 8px; font-size: 12px; color: #336699; }
   .drop-zone { border: 2px dashed #ddd; border-radius: 10px; padding: 2rem; text-align: center; cursor: pointer; transition: background 0.15s; }
-  .drop-zone:hover, .drop-zone.over { background: #f0f0f0; border-color: #bbb; }
+  .drop-zone:hover { background: #f0f0f0; border-color: #bbb; }
   .drop-zone p { font-size: 14px; color: #888; }
   .drop-zone strong { color: #1a1a1a; }
   .file-pill { display: none; align-items: center; gap: 10px; background: #f0f0f0; border-radius: 8px; padding: 10px 14px; }
   .file-pill.show { display: flex; }
   .file-name { flex: 1; font-size: 13px; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .file-size { font-size: 12px; color: #888; flex-shrink: 0; }
-  .remove-btn { background: none; border: none; cursor: pointer; color: #aaa; font-size: 20px; line-height: 1; padding: 0; flex-shrink: 0; }
+  .remove-btn { background: none; border: none; cursor: pointer; color: #aaa; font-size: 20px; line-height: 1; padding: 0; }
   .convert-btn { width: 100%; padding: 13px; font-size: 15px; font-weight: 600; background: #1a1a1a; color: #fff; border: none; border-radius: 10px; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 8px; transition: opacity 0.15s; margin-top: 4px; }
   .convert-btn:disabled { opacity: 0.35; cursor: not-allowed; }
   .convert-btn:not(:disabled):hover { opacity: 0.85; }
@@ -65,6 +66,13 @@
     </div>
   </div>
 
+  <!-- Chave API sempre visível -->
+  <div class="card">
+    <span class="card-label">Chave da API Anthropic</span>
+    <input type="password" id="api-key" placeholder="sk-ant-api03-..." oninput="updateBtn()" />
+    <p class="hint">Necessária para IA e tradução juramentada. <a href="https://console.anthropic.com/settings/keys" target="_blank">Obter chave</a></p>
+  </div>
+
   <!-- Modo -->
   <div class="card">
     <span class="card-label">Tipo de formatação</span>
@@ -73,28 +81,30 @@
       <button class="mode-btn" id="btn-juramentado" onclick="setMode('juramentado')">📜 Tradução Juramentada</button>
     </div>
 
-    <div class="toggle-row" id="api-toggle" onclick="toggleApi()">
-      <div class="checkbox" id="api-check"></div>
-      <div class="toggle-text">
-        <strong>🤖 Usar IA (API Claude)</strong>
-        <span id="api-hint-text">Máxima fidelidade. Necessário para PDFs escaneados.</span>
+    <!-- Opções SIMPLES -->
+    <div id="simples-options">
+      <div class="toggle-row" id="api-toggle" onclick="toggleApi()">
+        <div class="checkbox" id="api-check"></div>
+        <div class="toggle-text">
+          <strong>🤖 Usar IA</strong>
+          <span>Máxima fidelidade. Necessário para PDFs escaneados.</span>
+        </div>
       </div>
     </div>
 
-    <div class="toggle-row hidden" id="cetra-toggle" onclick="toggleCetra()" style="margin-top:8px;">
-      <div class="checkbox" id="cetra-check"></div>
-      <div class="toggle-text">
-        <strong>Modo CETRA</strong>
-        <span>Bilíngue inglês/outro idioma — mantém apenas inglês no texto corrido</span>
+    <!-- Opções JURAMENTADO -->
+    <div id="juramentado-options" class="hidden">
+      <div class="info-box">
+        📋 A tradução juramentada usa IA automaticamente para aplicar todas as regras (brasão, carimbo, assinatura...). Cole sua chave acima.
+      </div>
+      <div class="toggle-row" id="cetra-toggle" onclick="toggleCetra()" style="margin-top:8px;">
+        <div class="checkbox" id="cetra-check"></div>
+        <div class="toggle-text">
+          <strong>Modo CETRA</strong>
+          <span>Bilíngue inglês/outro idioma — mantém apenas inglês no texto corrido</span>
+        </div>
       </div>
     </div>
-  </div>
-
-  <!-- API Key (só aparece quando IA ativada) -->
-  <div class="card hidden" id="api-key-card">
-    <span class="card-label">Chave da API Anthropic</span>
-    <input type="password" id="api-key" placeholder="sk-ant-api03-..." oninput="updateBtn()" />
-    <p class="hint">Obtenha em <a href="https://console.anthropic.com/settings/keys" target="_blank">console.anthropic.com</a> → API Keys</p>
   </div>
 
   <!-- Upload -->
@@ -102,8 +112,7 @@
     <span class="card-label">Documento PDF</span>
     <div class="drop-zone" id="drop-zone"
       onclick="document.getElementById('file-input').click()"
-      ondragover="ev.preventDefault();this.classList.add('over')"
-      ondragleave="this.classList.remove('over')"
+      ondragover="event.preventDefault()"
       ondrop="handleDrop(event)">
       <div style="font-size:28px;margin-bottom:8px">📂</div>
       <p><strong>Clique para selecionar</strong> ou arraste o PDF aqui</p>
@@ -146,38 +155,30 @@ function setMode(m) {
   mode = m;
   document.getElementById('btn-simples').classList.toggle('active', m === 'simples');
   document.getElementById('btn-juramentado').classList.toggle('active', m === 'juramentado');
-  const cetraSection = document.getElementById('cetra-toggle');
-  if (m === 'juramentado') cetraSection.classList.remove('hidden');
-  else { cetraSection.classList.add('hidden'); cetraActive = false; updateCheckbox('cetra-check', false); document.getElementById('cetra-toggle').classList.remove('active'); }
-  document.getElementById('api-hint-text').textContent = m === 'juramentado'
-    ? 'Recomendado para juramentada — garante substituições de brasão, carimbo, assinatura...'
-    : 'Máxima fidelidade. Necessário para PDFs escaneados.';
+  document.getElementById('simples-options').classList.toggle('hidden', m === 'juramentado');
+  document.getElementById('juramentado-options').classList.toggle('hidden', m === 'simples');
   updateBtn();
 }
 
 function toggleApi() {
   apiActive = !apiActive;
   document.getElementById('api-toggle').classList.toggle('active', apiActive);
-  updateCheckbox('api-check', apiActive);
-  document.getElementById('api-key-card').classList.toggle('hidden', !apiActive);
+  const cb = document.getElementById('api-check');
+  cb.classList.toggle('checked', apiActive);
+  cb.textContent = apiActive ? '✓' : '';
   updateBtn();
 }
 
 function toggleCetra() {
   cetraActive = !cetraActive;
   document.getElementById('cetra-toggle').classList.toggle('active', cetraActive);
-  updateCheckbox('cetra-check', cetraActive);
-}
-
-function updateCheckbox(id, checked) {
-  const el = document.getElementById(id);
-  el.classList.toggle('checked', checked);
-  el.textContent = checked ? '✓' : '';
+  const cb = document.getElementById('cetra-check');
+  cb.classList.toggle('checked', cetraActive);
+  cb.textContent = cetraActive ? '✓' : '';
 }
 
 function handleDrop(e) {
   e.preventDefault();
-  document.getElementById('drop-zone').classList.remove('over');
   handleFile(e.dataTransfer.files[0]);
 }
 
@@ -185,8 +186,7 @@ function handleFile(file) {
   if (!file || file.type !== 'application/pdf') return;
   selectedFile = file;
   document.getElementById('drop-zone').style.display = 'none';
-  const pill = document.getElementById('file-pill');
-  pill.classList.add('show');
+  document.getElementById('file-pill').classList.add('show');
   document.getElementById('file-name').textContent = file.name;
   document.getElementById('file-size').textContent = (file.size/1024/1024).toFixed(1) + ' MB';
   updateBtn();
@@ -202,8 +202,8 @@ function removeFile() {
 
 function updateBtn() {
   const apiKey = document.getElementById('api-key').value.trim();
-  const needsKey = apiActive && !apiKey;
-  document.getElementById('convert-btn').disabled = !selectedFile || needsKey;
+  const needsKey = mode === 'juramentado' || apiActive;
+  document.getElementById('convert-btn').disabled = !selectedFile || (needsKey && !apiKey);
 }
 
 function setProgress(text, pct) {
@@ -212,40 +212,38 @@ function setProgress(text, pct) {
   document.getElementById('prog-fill').style.width = pct + '%';
 }
 
-function showResult(success, title, sub) {
+function showResult(ok, title, sub) {
   const box = document.getElementById('result-box');
-  box.className = 'result show ' + (success ? 'success' : 'error');
-  document.getElementById('result-title').textContent = (success ? '✅ ' : '❌ ') + title;
+  box.className = 'result show ' + (ok ? 'success' : 'error');
+  document.getElementById('result-title').textContent = (ok ? '✅ ' : '❌ ') + title;
   document.getElementById('result-sub').textContent = sub || '';
 }
 
 async function startConversion() {
   if (!selectedFile) return;
   const apiKey = document.getElementById('api-key').value.trim();
-
   document.getElementById('convert-btn').disabled = true;
   document.getElementById('progress-wrap').classList.add('show');
   document.getElementById('result-box').className = 'result';
   setProgress('Enviando arquivo...', 10);
 
   try {
-    const formData = new FormData();
-    formData.append('file', selectedFile);
-    formData.append('mode', mode);
-    formData.append('use_api', apiActive ? 'true' : 'false');
-    formData.append('cetra', cetraActive ? 'true' : 'false');
-    formData.append('api_key', apiKey);
+    const fd = new FormData();
+    fd.append('file', selectedFile);
+    fd.append('mode', mode);
+    fd.append('use_api', (apiActive || mode === 'juramentado') ? 'true' : 'false');
+    fd.append('cetra', cetraActive ? 'true' : 'false');
+    fd.append('api_key', apiKey);
 
     setProgress('Convertendo...', 30);
-
-    const resp = await fetch('/convert', { method: 'POST', body: formData });
+    const resp = await fetch('/convert', { method: 'POST', body: fd });
 
     if (!resp.ok) {
       const err = await resp.json();
       throw new Error(err.error || 'Erro na conversão');
     }
 
-    setProgress('Baixando arquivo...', 90);
+    setProgress('Baixando...', 90);
     const blob = await resp.blob();
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
@@ -256,7 +254,6 @@ async function startConversion() {
 
     setProgress('Concluído!', 100);
     showResult(true, 'Download iniciado! Verifique sua pasta de Downloads.');
-
   } catch(e) {
     showResult(false, 'Erro na conversão', e.message);
   } finally {
