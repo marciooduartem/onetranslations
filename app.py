@@ -50,28 +50,35 @@ REGRAS:
 - Ignore logo, cabeçalho repetitivo de página, assinaturas, carimbos"""
 
 PROMPT_JURAMENTADO = """Você é especialista em formatação de traduções juramentadas brasileiras.
-Analise a imagem e retorne SOMENTE JSON válido.
-{"idioma":"pt"|"en"|"es"|"de"|"fr"|"it"|"zh","blocks":[{"type":"paragraph"|"table","runs":[{"text":"...","bold":false,"italic":false,"superscript":false,"subscript":false,"color":null}],"align":"left"|"center"|"right"|"justify","table":{"header_bg":"D9D9D9","border_color":"000000","rows":[{"cells":[{"runs":[{"text":"...","bold":false}],"bg":null}]}]}}]}
+Analise a imagem e retorne SOMENTE JSON válido com esta estrutura:
+{"idioma":"pt"|"en"|"es"|"de"|"fr"|"it"|"zh","linhas":["linha1","","linha2","linha3",""]}
 
-SUBSTITUIÇÕES VISUAIS OBRIGATÓRIAS:
-- Brasão/armas de país → [Consta brasão de (nome do país/estado)]
-- Selo oficial → [Consta selo de (nome do país/estado/instituição)]
-- Logo legível → [Consta logotipo com o seguinte teor] e transcreva o texto visível no logo abaixo
-- Foto de pessoa(s) → [Consta fotografia]
-- Imagem genérica única → [Consta imagem]
-- Múltiplas imagens → [Constam imagens]
-- Desenho técnico único → [Consta desenho técnico]
-- Múltiplos desenhos → [Constam desenhos técnicos]
-- Gráfico → [Consta gráfico]
-- Diagrama → [Consta diagrama]
-- QR Code → [Consta código QR]
-- Assinatura manuscrita única → [Consta assinatura]
-- Múltiplas assinaturas → [Constam assinaturas]
-- Carimbo legível → [Consta carimbo com o seguinte teor] e transcreva o texto do carimbo abaixo
-- Carimbo ilegível → [Consta carimbo ilegível]
-- Texto ilegível → [Ilegível]
+REGRAS DE SAÍDA:
+- "linhas" é uma lista de strings onde cada string é UMA linha do documento
+- Linha vazia "" representa parágrafo/espaçamento entre blocos
+- O documento deve ser TEXTO CORRIDO, respeitando a ordem visual do documento
+- Cada elemento visual ocupa sua própria linha na lista
+
+SUBSTITUIÇÕES VISUAIS OBRIGATÓRIAS (cada uma vira uma linha):
+- Brasão/armas de país → "[Consta brasão de (nome do país/estado)]"
+- Selo oficial → "[Consta selo de (nome do país/estado/instituição)]"
+- Logo/logotipo legível → "[Consta logotipo com o seguinte teor]" seguido de linhas com o texto do logo
+- Foto de pessoa(s) → "[Consta fotografia]"
+- Imagem genérica → "[Consta imagem]" ou "[Constam imagens]" se múltiplas
+- Desenho técnico → "[Consta desenho técnico]" ou "[Constam desenhos técnicos]"
+- Gráfico → "[Consta gráfico]"
+- Diagrama → "[Consta diagrama]"
+- QR Code → "[Consta código QR]"
+- Assinatura manuscrita → "[Consta assinatura]" ou "[Constam assinaturas]"
+- Carimbo legível → "[Consta carimbo com o seguinte teor]" seguido de linhas com o texto do carimbo
+- Carimbo ilegível → "[Consta carimbo ilegível]"
+- Texto ilegível → "[Ilegível]"
 - Palavras riscadas → NÃO incluir
-REGRAS: Texto corrido, ordem lógica. Símbolos (α,μ,Ø,≤,≥) preservados. Superscript:true para sobrescritos."""
+
+EXEMPLO de saída correta:
+{"idioma":"pt","linhas":["[Consta logotipo com o seguinte teor]","udp","FACULTAD DE EDUCACIÓN","","DECLARAÇÃO DE CONCLUSÃO","","Declaramos que...","","Por ser verdade, firmamos.","","[Consta carimbo com o seguinte teor]","Nome da Instituição","Departamento","","[Consta assinatura]","Nome do Signatário","","Santiago, 23 de abril de 2026"]}
+
+Preserve exatamente o texto com acentos, maiúsculas, pontuação e símbolos especiais (α, μ, Ø, ≤, ≥)."""
 
 PROMPT_CETRA_EXTRA = """
 MODO CETRA ATIVADO:
@@ -105,7 +112,61 @@ def extract_page_claude(image_bytes, page_num, api_key, mode, cetra):
     raw = data["content"][0]["text"].strip().replace("```json","").replace("```","").strip()
     return json.loads(raw)
 
-# ── CONSTRUTOR DE DOCX A PARTIR DE JSON ───────────────────────────
+# ── CONSTRUTOR DE DOCX PARA JURAMENTADO (linhas) ─────────────────
+def build_docx_juramentado(all_pages, output_path):
+    from docx import Document
+    from docx.shared import Pt, Cm
+    from docx.enum.text import WD_ALIGN_PARAGRAPH
+
+    doc = Document()
+    for section in doc.sections:
+        section.top_margin = Cm(2.5)
+        section.bottom_margin = Cm(2.5)
+        section.left_margin = Cm(3)
+        section.right_margin = Cm(3)
+    doc.styles["Normal"].font.name = "Arial"
+    doc.styles["Normal"].font.size = Pt(12)
+
+    first_page = True
+    for pi, page_data in enumerate(all_pages):
+        if not first_page:
+            doc.add_page_break()
+        first_page = False
+
+        linhas = page_data.get("linhas", [])
+
+        # Fallback: se vier no formato antigo de blocks, converter
+        if not linhas and page_data.get("blocks"):
+            for block in page_data["blocks"]:
+                runs = block.get("runs", [])
+                text = "".join(r.get("text","") for r in runs)
+                linhas.append(text)
+                linhas.append("")
+
+        for linha in linhas:
+            p = doc.add_paragraph()
+            p.paragraph_format.space_before = Pt(0)
+            p.paragraph_format.space_after = Pt(0)
+            p.paragraph_format.line_spacing = Pt(14)
+
+            if linha.strip() == "":
+                # Linha vazia = espaço entre parágrafos
+                p.paragraph_format.space_after = Pt(6)
+            else:
+                run = p.add_run(linha)
+                run.font.name = "Arial"
+                run.font.size = Pt(12)
+                # Centraliza títulos/cabeçalhos em maiúsculas curtos
+                stripped = linha.strip()
+                if stripped.isupper() and len(stripped) < 80 and not stripped.startswith("["):
+                    p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+                else:
+                    p.alignment = WD_ALIGN_PARAGRAPH.LEFT
+
+    doc.save(str(output_path))
+
+
+# ── CONSTRUTOR DE DOCX A PARTIR DE JSON (SIMPLES) ────────────────
 def build_docx_from_json(all_pages, output_path, mode):
     from docx import Document
     from docx.shared import Pt, Cm, RGBColor
@@ -269,7 +330,11 @@ def convert():
                 except Exception as e:
                     all_pages.append({"blocks": [{"type": "paragraph", "runs": [{"text": f"[Erro na página {page_num+1}: {str(e)}]"}], "align": "left"}]})
             doc.close()
-            build_docx_from_json(all_pages, output_path, mode)
+            # Usar builder correto conforme o modo
+            if mode == "juramentado":
+                build_docx_juramentado(all_pages, output_path)
+            else:
+                build_docx_from_json(all_pages, output_path, mode)
 
         else:
             # Fallback: conversão direta
