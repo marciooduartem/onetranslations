@@ -26,7 +26,7 @@ def is_scanned(pdf_path):
         for page in doc:
             total_text += page.get_text()
         doc.close()
-        return len(total_text.strip()) < 100
+        return len(total_text.strip()) < 50  # muito pouco texto = escaneado
     except:
         return True
 
@@ -365,9 +365,11 @@ def convert():
 
         if mode == "juramentado" and not use_api:
             # Juramentado SEM IA — extrai texto digitalmente e aplica regras
-            if scanned:
-                return jsonify({"error": "PDF escaneado requer IA ativada para tradução juramentada. Ative o toggle 'Usar IA' e cole sua chave."}), 400
+            # Tenta extração digital; se falhar ou for escaneado, avisa
             all_pages = extract_juramentado_digital(pdf_path)
+            total_text = sum(len(l) for p in all_pages for l in p.get("linhas", []))
+            if total_text < 50:
+                return jsonify({"error": "Não foi possível extrair texto deste PDF. Ative a IA para processar PDFs escaneados."}), 400
             build_docx_juramentado(all_pages, output_path)
 
         elif mode == "juramentado" and use_api:
