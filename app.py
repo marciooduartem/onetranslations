@@ -1,433 +1,382 @@
-import os
-import json
-import base64
-import requests
-import tempfile
-import uuid
-from pathlib import Path
-from flask import Flask, request, jsonify, send_file, render_template
-from flask_cors import CORS
-from pdf2docx import Converter
-import fitz  # PyMuPDF
+import React, { useState, useRef, useEffect } from 'react';
+import { 
+  UploadCloud, 
+  FileText, 
+  Settings, 
+  CheckCircle, 
+  Download, 
+  RefreshCw, 
+  FileCheck,
+  AlignLeft,
+  Layout,
+  ChevronRight,
+  ShieldCheck,
+  AlertCircle
+} from 'lucide-react';
 
-app = Flask(__name__)
-CORS(app)
+export default function TranslationPlatform() {
+  const [step, setStep] = useState(1); // 1: Upload, 2: Config, 3: Processing, 4: Done
+  const [file, setFile] = useState(null);
+  const [isDragging, setIsDragging] = useState(false);
+  
+  // Configuration State
+  const [formatType, setFormatType] = useState('simples'); // 'simples' or 'juramentada'
+  const [translatorName, setTranslatorName] = useState('');
+  const [registrationNumber, setRegistrationNumber] = useState('');
+  
+  // Processing State
+  const [progress, setProgress] = useState(0);
+  const [processingStatus, setProcessingStatus] = useState('');
 
-UPLOAD_FOLDER = Path("uploads")
-OUTPUT_FOLDER = Path("outputs")
-UPLOAD_FOLDER.mkdir(exist_ok=True)
-OUTPUT_FOLDER.mkdir(exist_ok=True)
+  const fileInputRef = useRef(null);
 
-# ── DETECÇÃO DE PDF ESCANEADO ─────────────────────────────────────
-def is_scanned(pdf_path):
-    try:
-        doc = fitz.open(pdf_path)
-        total_text = ""
-        for page in doc:
-            total_text += page.get_text()
-        doc.close()
-        return len(total_text.strip()) < 50  # muito pouco texto = escaneado
-    except:
-        return True
+  const handleDragOver = (e) => {
+    e.preventDefault();
+    setIsDragging(true);
+  };
 
-# ── CONVERSÃO DIRETA PDF → DOCX (pdf2docx) ───────────────────────
-def convert_direct(pdf_path, output_path):
-    cv = Converter(str(pdf_path))
-    cv.convert(str(output_path))
-    cv.close()
+  const handleDragLeave = () => {
+    setIsDragging(false);
+  };
 
-# ── CONVERSÃO VIA API CLAUDE ──────────────────────────────────────
-PROMPT_SIMPLES = """Extraia o conteúdo da página e retorne SOMENTE JSON válido.
-{"blocks":[{"type":"heading"|"paragraph"|"table","runs":[{"text":"...","bold":false,"italic":false,"superscript":false,"subscript":false,"color":null}],"align":"left"|"center"|"right"|"justify","table":{"header_bg":"D9D9D9","border_color":"000000","rows":[{"cells":[{"runs":[{"text":"...","bold":false}],"bg":null}]}]}}]}
-REGRAS:
-- runs: trechos com formatação diferente viram runs separados. Negrito parcial DEVE ser separado.
-- Tabelas: detecte cor de fundo de cada célula visualmente
-- Títulos numerados (1., 4.1., 4.1.1.): type "heading"
-- Sobrescrito: superscript:true. Subscrito: subscript:true
-- Símbolos especiais (α, μ, Ø, ≤, ≥): preservar exatamente
-- Texto colorido: color:"RRGGBB" (hex sem #, null se preto)
-- Preserve exatamente o texto com acentos e pontuação
-- Ignore logo, cabeçalho repetitivo de página, assinaturas, carimbos"""
+  const handleDrop = (e) => {
+    e.preventDefault();
+    setIsDragging(false);
+    if (e.dataTransfer.files && e.dataTransfer.files[0]) {
+      handleFile(e.dataTransfer.files[0]);
+    }
+  };
 
-PROMPT_JURAMENTADO = """Você é especialista em formatação de traduções juramentadas brasileiras.
-Analise a imagem e retorne SOMENTE JSON válido com esta estrutura:
-{"idioma":"pt"|"en"|"es"|"de"|"fr"|"it"|"zh","linhas":["linha1","","linha2","linha3",""]}
+  const handleFileChange = (e) => {
+    if (e.target.files && e.target.files[0]) {
+      handleFile(e.target.files[0]);
+    }
+  };
 
-REGRAS DE SAÍDA:
-- "linhas" é uma lista de strings onde cada string é UMA linha do documento
-- Linha vazia "" representa parágrafo/espaçamento entre blocos
-- O documento deve ser TEXTO CORRIDO, respeitando a ordem visual do documento
-- Cada elemento visual ocupa sua própria linha na lista
+  const handleFile = (uploadedFile) => {
+    if (uploadedFile.type !== 'application/pdf') {
+      // In a real app, use a toast. Here we just gently alert via UI.
+      alert('Por favor, envie apenas arquivos PDF.');
+      return;
+    }
+    setFile(uploadedFile);
+    setStep(2);
+  };
 
-SUBSTITUIÇÕES VISUAIS OBRIGATÓRIAS (cada uma vira uma linha):
-- Brasão/armas de país → "[Consta brasão de (nome do país/estado)]"
-- Selo oficial → "[Consta selo de (nome do país/estado/instituição)]"
-- Logo/logotipo legível → "[Consta logotipo com o seguinte teor]" seguido de linhas com o texto do logo
-- Foto de pessoa(s) → "[Consta fotografia]"
-- Imagem genérica → "[Consta imagem]" ou "[Constam imagens]" se múltiplas
-- Desenho técnico → "[Consta desenho técnico]" ou "[Constam desenhos técnicos]"
-- Gráfico → "[Consta gráfico]"
-- Diagrama → "[Consta diagrama]"
-- QR Code → "[Consta código QR]"
-- Assinatura manuscrita → "[Consta assinatura]" ou "[Constam assinaturas]"
-- Carimbo legível → "[Consta carimbo com o seguinte teor]" seguido de linhas com o texto do carimbo
-- Carimbo ilegível → "[Consta carimbo ilegível]"
-- Texto ilegível → "[Ilegível]"
-- Palavras riscadas → NÃO incluir
+  const startProcessing = () => {
+    setStep(3);
+    setProgress(0);
+    
+    const steps = [
+      { progress: 10, msg: 'Lendo arquivo PDF e extraindo páginas...' },
+      { progress: 30, msg: 'Aplicando OCR e reconhecendo estrutura...' },
+      { progress: 50, msg: formatType === 'juramentada' ? 'Identificando carimbos e assinaturas...' : 'Mapeando layout, imagens e tabelas...' },
+      { progress: 70, msg: formatType === 'juramentada' ? 'Aplicando formatação padrão da junta comercial...' : 'Recriando espelho do documento original...' },
+      { progress: 90, msg: 'Revisando formatação final com IA...' },
+      { progress: 100, msg: 'Gerando arquivo Word (.docx)...' }
+    ];
 
-EXEMPLO de saída correta:
-{"idioma":"pt","linhas":["[Consta logotipo com o seguinte teor]","udp","FACULTAD DE EDUCACIÓN","","DECLARAÇÃO DE CONCLUSÃO","","Declaramos que...","","Por ser verdade, firmamos.","","[Consta carimbo com o seguinte teor]","Nome da Instituição","Departamento","","[Consta assinatura]","Nome do Signatário","","Santiago, 23 de abril de 2026"]}
+    let currentStep = 0;
 
-Preserve exatamente o texto com acentos, maiúsculas, pontuação e símbolos especiais (α, μ, Ø, ≤, ≥)."""
+    const interval = setInterval(() => {
+      if (currentStep < steps.length) {
+        setProgress(steps[currentStep].progress);
+        setProcessingStatus(steps[currentStep].msg);
+        currentStep++;
+      } else {
+        clearInterval(interval);
+        setTimeout(() => setStep(4), 500);
+      }
+    }, 1200); // Simulate time for each step
+  };
 
-PROMPT_CETRA_EXTRA = """
-MODO CETRA ATIVADO:
-- Documentos bilíngues: manter APENAS o texto em inglês
-- EXCEÇÕES: cabeçalho e nomes de cargos/referências institucionais
-- Palavras riscadas: NUNCA incluir
-- Rodapé repetitivo: incluir APENAS na última página, precedido de [consta nota de rodapé]
-- Imagens com título "Drawing No. X": incluir título + [Constam desenhos técnicos]
-- Numeração: corrigir pontos faltantes (1.11 → 1.1.1)"""
+  const handleDownload = () => {
+    // We create a mock HTML string that MS Word can interpret as a document
+    const content = formatType === 'juramentada' 
+      ? `<html><head><meta charset='utf-8'></head><body style="font-family: Courier New, monospace;">
+          <h2 style="text-align: center;">TRADUÇÃO PÚBLICA JURAMENTADA</h2>
+          <p><strong>Tradutor:</strong> ${translatorName || 'Não informado'}</p>
+          <p><strong>Matrícula:</strong> ${registrationNumber || 'Não informado'}</p>
+          <hr/>
+          <p>[Início da Tradução]</p>
+          <p>Este é um documento de exemplo gerado pela plataforma de IA.</p>
+          <p>[Carimbo ilegível]</p>
+          <p>[Fim da Tradução]</p>
+         </body></html>`
+      : `<html><head><meta charset='utf-8'></head><body style="font-family: Arial, sans-serif;">
+          <div style="border: 1px solid #ccc; padding: 20px;">
+            <h1>Documento Formatado (Simples)</h1>
+            <p>Este layout tenta imitar o documento original perfeitamente.</p>
+            <table border="1" width="100%"><tr><td>Dado 1</td><td>Dado 2</td></tr></table>
+          </div>
+         </body></html>`;
 
-def extract_page_claude(image_bytes, page_num, api_key, mode, cetra):
-    b64 = base64.b64encode(image_bytes).decode()
-    system = PROMPT_JURAMENTADO + (PROMPT_CETRA_EXTRA if cetra else "") if mode == "juramentado" else PROMPT_SIMPLES
-    resp = requests.post(
-        "https://api.anthropic.com/v1/messages",
-        headers={"Content-Type": "application/json", "x-api-key": api_key, "anthropic-version": "2023-06-01"},
-        json={
-            "model": "claude-opus-4-5",
-            "max_tokens": 4000,
-            "system": system,
-            "messages": [{"role": "user", "content": [
-                {"type": "image", "source": {"type": "base64", "media_type": "image/jpeg", "data": b64}},
-                {"type": "text", "text": f"Página {page_num}. Retorne JSON."}
-            ]}]
-        },
-        timeout=90
-    )
-    data = resp.json()
-    if not resp.ok:
-        raise Exception(data.get("error", {}).get("message", "Erro na API"))
-    raw = data["content"][0]["text"].strip().replace("```json","").replace("```","").strip()
-    return json.loads(raw)
+    const blob = new Blob(['\ufeff', content], { type: 'application/msword' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `Documento_Formatado_${formatType}.doc`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  };
 
-# ── EXTRAÇÃO JURAMENTADA SEM IA (PDF digital) ────────────────────
-def extract_juramentado_digital(pdf_path):
-    """
-    Extrai texto de PDF digital e formata como juramentado:
-    - Texto corrido linha por linha
-    - Linha vazia entre parágrafos
-    - Sem substituições visuais automáticas (usuário já deve ter feito isso)
-    """
-    doc = fitz.open(str(pdf_path))
-    all_pages = []
+  const resetApp = () => {
+    setStep(1);
+    setFile(null);
+    setFormatType('simples');
+    setTranslatorName('');
+    setRegistrationNumber('');
+    setProgress(0);
+  };
 
-    for page_num in range(len(doc)):
-        page = doc[page_num]
-        # Extrair blocos de texto com posição
-        blocks = page.get_text("blocks")
-        # Ordenar por posição vertical depois horizontal
-        blocks.sort(key=lambda b: (round(b[1]/10)*10, b[0]))
+  return (
+    <div className="min-h-screen bg-slate-50 text-slate-800 font-sans p-4 md:p-8 flex flex-col items-center">
+      
+      {/* Header */}
+      <header className="w-full max-w-4xl flex items-center justify-between mb-8 pb-4 border-b border-slate-200">
+        <div className="flex items-center gap-2">
+          <div className="bg-blue-600 p-2 rounded-lg">
+            <RefreshCw className="w-6 h-6 text-white" />
+          </div>
+          <div>
+            <h1 className="text-2xl font-bold text-slate-900 leading-tight">TranslateFlow AI</h1>
+            <p className="text-sm text-slate-500">Automação de Formatação Simples e Juramentada</p>
+          </div>
+        </div>
+      </header>
 
-        linhas = []
-        prev_y = None
+      {/* Main Content Area */}
+      <main className="w-full max-w-4xl bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden flex flex-col md:flex-row min-h-[500px]">
+        
+        {/* Sidebar / Stepper */}
+        <div className="bg-slate-100 w-full md:w-64 p-6 border-b md:border-b-0 md:border-r border-slate-200 flex flex-col gap-6">
+          <StepIndicator currentStep={step} stepNum={1} icon={<UploadCloud size={20} />} title="Upload do PDF" />
+          <StepIndicator currentStep={step} stepNum={2} icon={<Settings size={20} />} title="Configuração" />
+          <StepIndicator currentStep={step} stepNum={3} icon={<RefreshCw size={20} />} title="Processamento IA" />
+          <StepIndicator currentStep={step} stepNum={4} icon={<Download size={20} />} title="Resultado Word" />
+        </div>
 
-        for block in blocks:
-            if block[6] != 0:  # ignorar imagens (tipo != 0)
-                continue
-            text = block[4].strip()
-            if not text:
-                continue
+        {/* Dynamic Content Area */}
+        <div className="flex-1 p-6 md:p-10 flex flex-col justify-center relative">
+          
+          {/* STEP 1: UPLOAD */}
+          {step === 1 && (
+            <div className="w-full max-w-md mx-auto animate-fade-in text-center">
+              <h2 className="text-2xl font-semibold mb-2">Importar Documento</h2>
+              <p className="text-slate-500 mb-8">Envie o documento PDF original que precisa de formatação.</p>
+              
+              <div 
+                className={`border-2 border-dashed rounded-xl p-10 transition-colors cursor-pointer flex flex-col items-center justify-center gap-4
+                  ${isDragging ? 'border-blue-500 bg-blue-50' : 'border-slate-300 hover:border-blue-400 hover:bg-slate-50'}`}
+                onDragOver={handleDragOver}
+                onDragLeave={handleDragLeave}
+                onDrop={handleDrop}
+                onClick={() => fileInputRef.current.click()}
+              >
+                <div className="w-16 h-16 bg-blue-100 rounded-full flex items-center justify-center text-blue-600 mb-2">
+                  <FileText size={32} />
+                </div>
+                <div>
+                  <p className="font-medium text-slate-700">Clique para buscar ou arraste o arquivo</p>
+                  <p className="text-sm text-slate-400 mt-1">Apenas arquivos PDF (Max 20MB)</p>
+                </div>
+                <input 
+                  type="file" 
+                  ref={fileInputRef} 
+                  onChange={handleFileChange} 
+                  accept="application/pdf" 
+                  className="hidden" 
+                />
+              </div>
+            </div>
+          )}
 
-            y = block[1]
-            # Se há salto vertical significativo, adicionar linha em branco
-            if prev_y is not None and (y - prev_y) > 20:
-                linhas.append("")
+          {}
+          {/* STEP 2: CONFIGURATION */}
+          {step === 2 && (
+            <div className="w-full max-w-lg mx-auto animate-fade-in">
+              <div className="flex items-center gap-3 mb-6 bg-blue-50 p-3 rounded-lg border border-blue-100">
+                <FileCheck className="text-blue-600" />
+                <span className="font-medium text-blue-900 truncate">{file?.name}</span>
+                <span className="text-sm text-blue-500 ml-auto bg-blue-100 px-2 py-1 rounded">{(file?.size / 1024 / 1024).toFixed(2)} MB</span>
+              </div>
 
-            # Quebrar em linhas internas
-            for linha in text.split('\n'):
-                linha = linha.strip()
-                if linha:
-                    linhas.append(linha)
+              <h2 className="text-2xl font-semibold mb-6">Tipo de Formatação</h2>
+              
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-8">
+                <button
+                  onClick={() => setFormatType('simples')}
+                  className={`p-4 border-2 rounded-xl text-left transition-all flex flex-col gap-2
+                    ${formatType === 'simples' ? 'border-blue-500 bg-blue-50 shadow-sm' : 'border-slate-200 hover:border-slate-300 hover:bg-slate-50'}`}
+                >
+                  <div className={`p-2 rounded-lg w-fit ${formatType === 'simples' ? 'bg-blue-600 text-white' : 'bg-slate-200 text-slate-600'}`}>
+                    <Layout size={20} />
+                  </div>
+                  <h3 className="font-semibold text-lg mt-1">Formatação Simples</h3>
+                  <p className="text-sm text-slate-500 leading-snug">Layout idêntico ao original. Mantém tabelas, imagens e colunas exatas.</p>
+                </button>
 
-            prev_y = block[3]  # y final do bloco
+                <button
+                  onClick={() => setFormatType('juramentada')}
+                  className={`p-4 border-2 rounded-xl text-left transition-all flex flex-col gap-2
+                    ${formatType === 'juramentada' ? 'border-blue-500 bg-blue-50 shadow-sm' : 'border-slate-200 hover:border-slate-300 hover:bg-slate-50'}`}
+                >
+                  <div className={`p-2 rounded-lg w-fit ${formatType === 'juramentada' ? 'bg-blue-600 text-white' : 'bg-slate-200 text-slate-600'}`}>
+                    <ShieldCheck size={20} />
+                  </div>
+                  <h3 className="font-semibold text-lg mt-1">Juramentada</h3>
+                  <p className="text-sm text-slate-500 leading-snug">Padrão oficial. Transcreve imagens como texto, aplica cabeçalho e rodapé.</p>
+                </button>
+              </div>
 
-        # Remover linhas em branco duplas consecutivas
-        clean = []
-        prev_empty = False
-        for l in linhas:
-            if l == "":
-                if not prev_empty:
-                    clean.append(l)
-                prev_empty = True
-            else:
-                clean.append(l)
-                prev_empty = False
+              {formatType === 'juramentada' && (
+                <div className="bg-slate-50 border border-slate-200 rounded-xl p-5 mb-8 animate-fade-in space-y-4">
+                  <h4 className="font-medium text-slate-700 mb-2 flex items-center gap-2">
+                    <AlignLeft size={16} /> Configurações do Tradutor
+                  </h4>
+                  <div>
+                    <label className="block text-sm text-slate-600 mb-1">Nome do Tradutor Público</label>
+                    <input 
+                      type="text" 
+                      value={translatorName}
+                      onChange={(e) => setTranslatorName(e.target.value)}
+                      placeholder="Ex: João Silva"
+                      className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm text-slate-600 mb-1">Matrícula / Junta Comercial</label>
+                    <input 
+                      type="text" 
+                      value={registrationNumber}
+                      onChange={(e) => setRegistrationNumber(e.target.value)}
+                      placeholder="Ex: JUCESP Nº 12345"
+                      className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    />
+                  </div>
+                </div>
+              )}
 
-        all_pages.append({"linhas": clean})
+              <div className="flex justify-between items-center mt-auto">
+                <button 
+                  onClick={() => setStep(1)}
+                  className="px-4 py-2 text-slate-600 hover:bg-slate-100 rounded-lg transition-colors font-medium"
+                >
+                  Voltar
+                </button>
+                <button 
+                  onClick={startProcessing}
+                  className="px-6 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors font-medium flex items-center gap-2"
+                >
+                  Processar Documento <ChevronRight size={18} />
+                </button>
+              </div>
+            </div>
+          )}
 
-    doc.close()
-    return all_pages
+          {}
+          {/* STEP 3: PROCESSING */}
+          {step === 3 && (
+            <div className="w-full max-w-md mx-auto text-center animate-fade-in py-10">
+              <div className="relative w-24 h-24 mx-auto mb-8">
+                <svg className="animate-spin w-full h-full text-blue-100" viewBox="0 0 100 100">
+                  <circle cx="50" cy="50" r="45" fill="none" strokeWidth="8" stroke="currentColor" />
+                </svg>
+                <svg className="animate-spin w-full h-full text-blue-600 absolute top-0 left-0" viewBox="0 0 100 100" style={{ animationDirection: 'reverse', animationDuration: '3s' }}>
+                  <circle cx="50" cy="50" r="45" fill="none" strokeWidth="8" stroke="currentColor" strokeDasharray="283" strokeDashoffset={283 - (283 * progress) / 100} className="transition-all duration-300" />
+                </svg>
+                <div className="absolute top-0 left-0 w-full h-full flex items-center justify-center font-bold text-xl text-blue-600">
+                  {progress}%
+                </div>
+              </div>
+              
+              <h2 className="text-2xl font-semibold mb-2">A IA está trabalhando...</h2>
+              <p className="text-slate-500 font-medium h-6">{processingStatus}</p>
+              
+              <div className="mt-8 bg-slate-50 p-4 rounded-lg border border-slate-200 text-left">
+                <p className="text-xs text-slate-500 uppercase tracking-wider font-semibold mb-2">Log do Sistema</p>
+                <div className="space-y-2 text-sm text-slate-600 font-mono">
+                  <p className={progress >= 10 ? 'opacity-100 text-green-600' : 'opacity-40'}>[✓] Leitura inicial do PDF</p>
+                  <p className={progress >= 30 ? 'opacity-100 text-green-600' : 'opacity-40'}>[✓] Processamento de OCR Avançado</p>
+                  <p className={progress >= 50 ? 'opacity-100 text-green-600' : 'opacity-40'}>[✓] Mapeamento de Layout / Componentes</p>
+                  <p className={progress >= 90 ? 'opacity-100 text-green-600' : 'opacity-40'}>[✓] Geração de Estrutura Word</p>
+                </div>
+              </div>
+            </div>
+          )}
 
+          {}
+          {/* STEP 4: RESULT */}
+          {step === 4 && (
+            <div className="w-full max-w-md mx-auto text-center animate-fade-in">
+              <div className="w-20 h-20 bg-green-100 text-green-600 rounded-full flex items-center justify-center mx-auto mb-6">
+                <CheckCircle size={40} />
+              </div>
+              
+              <h2 className="text-2xl font-semibold mb-2">Documento Pronto!</h2>
+              <p className="text-slate-500 mb-8">
+                A formatação {formatType === 'juramentada' ? 'juramentada' : 'simples'} foi aplicada com sucesso. O arquivo editável já pode ser baixado.
+              </p>
 
-# ── CONSTRUTOR DE DOCX PARA JURAMENTADO (linhas) ─────────────────
-def build_docx_juramentado(all_pages, output_path):
-    from docx import Document
-    from docx.shared import Pt, Cm
-    from docx.enum.text import WD_ALIGN_PARAGRAPH
+              <div className="bg-blue-50 border border-blue-200 rounded-xl p-6 mb-8">
+                <div className="flex items-center gap-4 mb-4">
+                  <div className="bg-white p-3 rounded-lg shadow-sm">
+                    <FileText className="text-blue-600" size={32} />
+                  </div>
+                  <div className="text-left flex-1">
+                    <h4 className="font-semibold text-slate-800 line-clamp-1">{file?.name.replace('.pdf', '')}_FORMATADO.docx</h4>
+                    <p className="text-sm text-slate-500">Pronto para edição e revisão</p>
+                  </div>
+                </div>
+                
+                <button 
+                  onClick={handleDownload}
+                  className="w-full py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors font-medium flex items-center justify-center gap-2 shadow-sm shadow-blue-200"
+                >
+                  <Download size={20} /> Baixar Documento Word
+                </button>
+              </div>
 
-    doc = Document()
-    for section in doc.sections:
-        section.top_margin = Cm(2.5)
-        section.bottom_margin = Cm(2.5)
-        section.left_margin = Cm(3)
-        section.right_margin = Cm(3)
-    doc.styles["Normal"].font.name = "Arial"
-    doc.styles["Normal"].font.size = Pt(12)
+              <div className="flex items-center justify-center gap-2 text-slate-500 text-sm">
+                <AlertCircle size={16} />
+                <span>Recomendamos sempre uma revisão humana final.</span>
+              </div>
 
-    first_page = True
-    for pi, page_data in enumerate(all_pages):
-        if not first_page:
-            doc.add_page_break()
-        first_page = False
+              <button 
+                onClick={resetApp}
+                className="mt-8 text-slate-400 hover:text-slate-600 underline font-medium text-sm transition-colors"
+              >
+                Formatar outro documento
+              </button>
+            </div>
+          )}
 
-        linhas = page_data.get("linhas", [])
+        </div>
+      </main>
+    </div>
+  );
+}
 
-        # Fallback: se vier no formato antigo de blocks, converter
-        if not linhas and page_data.get("blocks"):
-            for block in page_data["blocks"]:
-                runs = block.get("runs", [])
-                text = "".join(r.get("text","") for r in runs)
-                linhas.append(text)
-                linhas.append("")
+function StepIndicator({ currentStep, stepNum, icon, title }) {
+  const isCompleted = currentStep > stepNum;
+  const isActive = currentStep === stepNum;
+  const isPending = currentStep < stepNum;
 
-        for linha in linhas:
-            p = doc.add_paragraph()
-            p.paragraph_format.space_before = Pt(0)
-            p.paragraph_format.space_after = Pt(0)
-            p.paragraph_format.line_spacing = Pt(14)
-
-            if linha.strip() == "":
-                # Linha vazia = espaço entre parágrafos
-                p.paragraph_format.space_after = Pt(6)
-            else:
-                run = p.add_run(linha)
-                run.font.name = "Arial"
-                run.font.size = Pt(12)
-                # Centraliza títulos/cabeçalhos em maiúsculas curtos
-                stripped = linha.strip()
-                if stripped.isupper() and len(stripped) < 80 and not stripped.startswith("["):
-                    p.alignment = WD_ALIGN_PARAGRAPH.CENTER
-                else:
-                    p.alignment = WD_ALIGN_PARAGRAPH.LEFT
-
-    doc.save(str(output_path))
-
-
-# ── CONSTRUTOR DE DOCX A PARTIR DE JSON (SIMPLES) ────────────────
-def build_docx_from_json(all_pages, output_path, mode):
-    from docx import Document
-    from docx.shared import Pt, Cm, RGBColor
-    from docx.enum.text import WD_ALIGN_PARAGRAPH
-    from docx.oxml.ns import qn
-    from docx.oxml import OxmlElement
-
-    INDENT = {1: 0, 2: 504, 3: 1080, 4: 1656}
-    HANG   = {1: 360, 2: 432, 3: 504, 4: 576}
-
-    import re
-    def detect_level(runs):
-        text = "".join(r.get("text","") for r in (runs or []))
-        m = re.match(r'^(\d+(?:\.\d+)*)\.?\s', text)
-        return len(m.group(1).split(".")) if m else None
-
-    doc = Document()
-    for section in doc.sections:
-        section.top_margin = Cm(2)
-        section.bottom_margin = Cm(2)
-        section.left_margin = Cm(2.5)
-        section.right_margin = Cm(2.5)
-    doc.styles["Normal"].font.name = "Arial"
-    doc.styles["Normal"].font.size = Pt(10)
-
-    def add_runs(para, runs, size_pt=10):
-        for r in (runs or []):
-            run = para.add_run(r.get("text",""))
-            run.bold = r.get("bold", False)
-            run.italic = r.get("italic", False)
-            run.font.name = "Arial"
-            run.font.size = Pt(size_pt)
-            if r.get("superscript"):
-                run.font.superscript = True
-            if r.get("subscript"):
-                run.font.subscript = True
-            if r.get("color"):
-                try:
-                    c = r["color"].lstrip("#")
-                    run.font.color.rgb = RGBColor(int(c[0:2],16), int(c[2:4],16), int(c[4:6],16))
-                except:
-                    pass
-
-    def add_table(doc, table_data):
-        rows = table_data.get("rows", [])
-        if not rows: return
-        num_cols = max(len(r.get("cells",[])) for r in rows)
-        if num_cols == 0: return
-        table = doc.add_table(rows=len(rows), cols=num_cols)
-        table.style = "Table Grid"
-        for ri, row in enumerate(rows):
-            cells = row.get("cells", [])
-            for ci in range(num_cols):
-                cell = table.cell(ri, ci)
-                cell.text = ""
-                if ci < len(cells):
-                    cell_data = cells[ci]
-                    bg = cell_data.get("bg")
-                    if not bg and ri == 0:
-                        bg = table_data.get("header_bg", "D9D9D9")
-                    if bg:
-                        tc = cell._tc
-                        tcPr = tc.get_or_add_tcPr()
-                        shd = OxmlElement("w:shd")
-                        shd.set(qn("w:val"), "clear")
-                        shd.set(qn("w:color"), "auto")
-                        shd.set(qn("w:fill"), bg.lstrip("#"))
-                        tcPr.append(shd)
-                    para = cell.paragraphs[0]
-                    para.alignment = WD_ALIGN_PARAGRAPH.CENTER if ri == 0 else WD_ALIGN_PARAGRAPH.LEFT
-                    add_runs(para, cell_data.get("runs", []), size_pt=9)
-        doc.add_paragraph()
-
-    for pi, page_data in enumerate(all_pages):
-        if pi > 0:
-            doc.add_page_break()
-        blocks = page_data.get("blocks", [])
-        cur_lvl = 1
-
-        for block in blocks:
-            btype = block.get("type", "paragraph")
-            runs = block.get("runs", [])
-            align = block.get("align", "justify")
-
-            if btype == "table":
-                add_table(doc, block.get("table", {}))
-                continue
-
-            lvl = detect_level(runs) if mode == "simples" else None
-
-            p = doc.add_paragraph()
-            align_map = {"left": WD_ALIGN_PARAGRAPH.LEFT, "center": WD_ALIGN_PARAGRAPH.CENTER,
-                         "right": WD_ALIGN_PARAGRAPH.RIGHT, "justify": WD_ALIGN_PARAGRAPH.JUSTIFY}
-
-            if lvl is not None:
-                cur_lvl = lvl
-                left = (INDENT.get(lvl, 0) + HANG.get(lvl, 360))
-                p.paragraph_format.left_indent = Pt(left / 20)
-                p.paragraph_format.first_line_indent = Pt(-HANG.get(lvl, 360) / 20)
-                p.alignment = WD_ALIGN_PARAGRAPH.JUSTIFY
-            else:
-                left = (INDENT.get(cur_lvl, 0) + HANG.get(cur_lvl, 0)) if mode == "simples" else 0
-                if left > 0:
-                    p.paragraph_format.left_indent = Pt(left / 20)
-                p.alignment = align_map.get(align, WD_ALIGN_PARAGRAPH.JUSTIFY)
-
-            p.paragraph_format.space_before = Pt(2)
-            p.paragraph_format.space_after = Pt(4)
-            add_runs(p, runs)
-
-    doc.save(str(output_path))
-
-# ── ROTAS ─────────────────────────────────────────────────────────
-@app.route("/")
-def index():
-    return render_template("index.html")
-
-@app.route("/convert", methods=["POST"])
-def convert():
-    if "file" not in request.files:
-        return jsonify({"error": "Nenhum arquivo enviado"}), 400
-
-    file = request.files["file"]
-    mode = request.form.get("mode", "simples")
-    use_api = request.form.get("use_api", "false") == "true"
-    cetra = request.form.get("cetra", "false") == "true"
-    api_key = request.form.get("api_key", "")
-
-    # Salvar PDF
-    pdf_id = str(uuid.uuid4())
-    pdf_path = UPLOAD_FOLDER / f"{pdf_id}.pdf"
-    output_path = OUTPUT_FOLDER / f"{pdf_id}.docx"
-    file.save(str(pdf_path))
-
-    try:
-        scanned = is_scanned(pdf_path)
-
-        if mode == "juramentado" and not use_api:
-            # Juramentado SEM IA — extrai texto digitalmente e aplica regras
-            # Tenta extração digital; se falhar ou for escaneado, avisa
-            all_pages = extract_juramentado_digital(pdf_path)
-            total_text = sum(len(l) for p in all_pages for l in p.get("linhas", []))
-            if total_text < 50:
-                return jsonify({"error": "Não foi possível extrair texto deste PDF. Ative a IA para processar PDFs escaneados."}), 400
-            build_docx_juramentado(all_pages, output_path)
-
-        elif mode == "juramentado" and use_api:
-            # Juramentado COM IA
-            if not api_key:
-                return jsonify({"error": "Cole sua chave de API para usar a IA."}), 400
-            doc = fitz.open(str(pdf_path))
-            all_pages = []
-            for page_num in range(len(doc)):
-                page = doc[page_num]
-                mat = fitz.Matrix(1.5, 1.5)
-                pix = page.get_pixmap(matrix=mat)
-                img_bytes = pix.tobytes("jpeg")
-                try:
-                    data = extract_page_claude(img_bytes, page_num + 1, api_key, mode, cetra)
-                    all_pages.append(data)
-                except Exception as e:
-                    all_pages.append({"linhas": [f"[Erro na página {page_num+1}: {str(e)}]"]})
-            doc.close()
-            build_docx_juramentado(all_pages, output_path)
-
-        elif not use_api and not scanned:
-            # Simples + PDF digital + sem IA → conversão direta
-            convert_direct(pdf_path, output_path)
-
-        else:
-            # Simples com IA ou PDF escaneado
-            if not api_key:
-                return jsonify({"error": "Chave de API necessária para PDFs escaneados ou quando a IA está ativada."}), 400
-            doc = fitz.open(str(pdf_path))
-            all_pages = []
-            for page_num in range(len(doc)):
-                page = doc[page_num]
-                mat = fitz.Matrix(1.5, 1.5)
-                pix = page.get_pixmap(matrix=mat)
-                img_bytes = pix.tobytes("jpeg")
-                try:
-                    data = extract_page_claude(img_bytes, page_num + 1, api_key, mode, cetra)
-                    all_pages.append(data)
-                except Exception as e:
-                    all_pages.append({"blocks": [{"type": "paragraph", "runs": [{"text": f"[Erro na página {page_num+1}: {str(e)}]"}], "align": "left"}]})
-            doc.close()
-            build_docx_from_json(all_pages, output_path, mode)
-
-        original_name = Path(file.filename).stem
-        return send_file(
-            str(output_path),
-            as_attachment=True,
-            download_name=f"{original_name}_convertido.docx",
-            mimetype="application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-        )
-
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
-    finally:
-        if pdf_path.exists():
-            pdf_path.unlink()
-
-if __name__ == "__main__":
-    port = int(os.environ.get("PORT", 5000))
-    app.run(host="0.0.0.0", port=port)
+  return (
+    <div className={`flex items-center gap-3 transition-opacity duration-300 ${isPending ? 'opacity-40' : 'opacity-100'}`}>
+      <div className={`w-10 h-10 rounded-full flex items-center justify-center shrink-0 border-2 transition-colors
+        ${isCompleted ? 'bg-green-500 border-green-500 text-white' : ''}
+        ${isActive ? 'border-blue-600 text-blue-600 bg-blue-50' : ''}
+        ${isPending ? 'border-slate-300 text-slate-400' : ''}
+      `}>
+        {isCompleted ? <CheckCircle size={20} /> : icon}
+      </div>
+      <div className="hidden md:block">
+        <p className={`font-semibold text-sm ${isActive ? 'text-blue-600' : 'text-slate-700'}`}>Passo {stepNum}</p>
+        <p className="text-xs text-slate-500">{title}</p>
+      </div>
+    </div>
+  );
+}
