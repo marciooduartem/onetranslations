@@ -50,30 +50,54 @@ REGRAS:
 
 PROMPT_JURAMENTADO = """Você é especialista em formatação de traduções juramentadas brasileiras.
 Analise a imagem e retorne SOMENTE JSON válido:
-{"idioma":"pt"|"en"|"es"|"de"|"fr"|"it"|"zh","linhas":["linha1","","linha2"]}
+{"idioma":"pt"|"en"|"es"|"de"|"fr"|"it"|"zh","blocos":[
+  {"tipo":"linha","texto":"..."},
+  {"tipo":"vazia"},
+  {"tipo":"tabela","titulo":"Table 1...","linhas":[["col1","col2"],["dado1","dado2"]]}
+]}
 
-REGRAS DE SAÍDA:
-- "linhas" é uma lista de strings, cada string é UMA linha do documento
-- Linha vazia "" representa espaçamento entre blocos
-- Texto corrido respeitando a ordem visual do documento
+ESTRUTURA:
+- "blocos" é uma lista ordenada de elementos do documento
+- Cada bloco é "linha" (texto), "vazia" (espaçamento) ou "tabela" (tabela com linhas)
+- Para tabela: "linhas" é array de arrays — primeira é o cabeçalho, demais são dados
 
-SUBSTITUIÇÕES OBRIGATÓRIAS (cada uma vira uma linha):
-- Logotipo legível → "[Consta logotipo com o seguinte teor]" + linhas com texto do logo
+SUBSTITUIÇÕES VISUAIS OBRIGATÓRIAS:
+- Logotipo legível → bloco "linha" com "[Consta logotipo]" + blocos seguintes com texto do logo
 - Brasão/armas → "[Consta brasão de (nome do país/estado)]"
 - Selo oficial → "[Consta selo de (nome do país/estado/instituição)]"
 - Foto de pessoa → "[Consta fotografia]"
-- Imagem → "[Consta imagem]" ou "[Constam imagens]"
+- Imagem única → "[Consta imagem]"
+- Múltiplas imagens → "[Constam imagens]"
+- Figura técnica com texto → "[Consta figura]" + linhas seguintes com texto
 - Desenho técnico → "[Consta desenho técnico]" ou "[Constam desenhos técnicos]"
 - Gráfico → "[Consta gráfico]"
 - Diagrama → "[Consta diagrama]"
 - QR Code → "[Consta código QR]"
 - Assinatura → "[Consta assinatura]" ou "[Constam assinaturas]"
-- Carimbo legível → "[Consta carimbo com o seguinte teor]" + linhas com texto
+- Carimbo legível → "[Consta carimbo]" + linhas seguintes com texto do carimbo
 - Carimbo ilegível → "[Consta carimbo ilegível]"
 - Texto ilegível → "[Ilegível]"
 - Palavras riscadas → NÃO incluir
 
-Preserve exatamente o texto com acentos, maiúsculas, pontuação e símbolos."""
+REGRAS DE FORMATAÇÃO:
+- Itens numerados (1., 2., 3.) devem estar em UMA LINHA SÓ: "1. Trademark: FERRARI"
+- TABELAS devem ser blocos tipo "tabela" com array bidimensional
+- Quando houver título "Table X. ..." antes da tabela, inclua no campo "titulo"
+- Preserve exatamente o texto com acentos, maiúsculas, pontuação e símbolos
+
+EXEMPLO de saída:
+{"idioma":"en","blocos":[
+  {"tipo":"linha","texto":"[Consta figura]"},
+  {"tipo":"linha","texto":"ITU"},
+  {"tipo":"vazia"},
+  {"tipo":"linha","texto":"1. Trademark: FERRARI"},
+  {"tipo":"vazia"},
+  {"tipo":"tabela","titulo":"Table 1. Intra mode number","linhas":[
+    ["PU size","HM5.0","Proposed"],
+    ["4x4","18","35"],
+    ["8x8","35","35"]
+  ]}
+]}"""
 
 PROMPT_CETRA_EXTRA = """
 MODO CETRA ATIVADO:
@@ -116,6 +140,8 @@ def build_docx_juramentado(all_pages, output_path):
     from docx import Document
     from docx.shared import Pt, Cm
     from docx.enum.text import WD_ALIGN_PARAGRAPH
+    from docx.oxml.ns import qn
+    from docx.oxml import OxmlElement
 
     doc = Document()
     for section in doc.sections:
@@ -126,35 +152,88 @@ def build_docx_juramentado(all_pages, output_path):
     doc.styles["Normal"].font.name = "Arial"
     doc.styles["Normal"].font.size = Pt(12)
 
+    def add_text_paragraph(texto, centered=False):
+        p = doc.add_paragraph()
+        p.paragraph_format.space_before = Pt(0)
+        p.paragraph_format.space_after = Pt(0)
+        p.paragraph_format.line_spacing = Pt(14)
+        if texto.strip() == "":
+            p.paragraph_format.space_after = Pt(8)
+        else:
+            run = p.add_run(texto)
+            run.font.name = "Arial"
+            run.font.size = Pt(12)
+            stripped = texto.strip()
+            if centered or (stripped.isupper() and len(stripped) < 80 and not stripped.startswith("[")):
+                p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+            else:
+                p.alignment = WD_ALIGN_PARAGRAPH.LEFT
+        return p
+
+    def add_real_table(titulo, linhas):
+        # Título da tabela
+        if titulo:
+            p = doc.add_paragraph()
+            p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+            run = p.add_run(titulo)
+            run.bold = True
+            run.font.name = "Arial"
+            run.font.size = Pt(11)
+        # Tabela
+        if not linhas: return
+        num_cols = max(len(r) for r in linhas)
+        if num_cols == 0: return
+        table = doc.add_table(rows=len(linhas), cols=num_cols)
+        table.style = "Table Grid"
+        table.alignment = WD_ALIGN_PARAGRAPH.CENTER
+        for ri, linha in enumerate(linhas):
+            for ci in range(num_cols):
+                cell = table.cell(ri, ci)
+                cell.text = ""
+                texto = linha[ci] if ci < len(linha) else ""
+                # Cabeçalho com fundo cinza
+                if ri == 0:
+                    tcPr = cell._tc.get_or_add_tcPr()
+                    shd = OxmlElement("w:shd")
+                    shd.set(qn("w:val"), "clear")
+                    shd.set(qn("w:color"), "auto")
+                    shd.set(qn("w:fill"), "D9D9D9")
+                    tcPr.append(shd)
+                para = cell.paragraphs[0]
+                para.alignment = WD_ALIGN_PARAGRAPH.CENTER
+                run = para.add_run(texto)
+                run.font.name = "Arial"
+                run.font.size = Pt(10)
+                if ri == 0:
+                    run.bold = True
+        # Espaço após a tabela
+        doc.add_paragraph()
+
     first_page = True
     for pi, page_data in enumerate(all_pages):
         if not first_page:
             doc.add_page_break()
         first_page = False
 
-        linhas = page_data.get("linhas", [])
+        # Novo formato: blocos
+        blocos = page_data.get("blocos", [])
 
-        prev_empty = False
-        for linha in linhas:
-            p = doc.add_paragraph()
-            p.paragraph_format.space_before = Pt(0)
-            p.paragraph_format.space_after = Pt(0)
-            p.paragraph_format.line_spacing = Pt(14)
-
-            if linha.strip() == "":
-                if not prev_empty:
-                    p.paragraph_format.space_after = Pt(8)
-                prev_empty = True
-            else:
-                run = p.add_run(linha)
-                run.font.name = "Arial"
-                run.font.size = Pt(12)
-                stripped = linha.strip()
-                if stripped.isupper() and len(stripped) < 80 and not stripped.startswith("["):
-                    p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+        # Compatibilidade com formato antigo: linhas
+        if not blocos and page_data.get("linhas"):
+            for linha in page_data["linhas"]:
+                if linha.strip() == "":
+                    blocos.append({"tipo": "vazia"})
                 else:
-                    p.alignment = WD_ALIGN_PARAGRAPH.LEFT
-                prev_empty = False
+                    blocos.append({"tipo": "linha", "texto": linha})
+
+        for bloco in blocos:
+            tipo = bloco.get("tipo", "linha")
+            if tipo == "vazia":
+                add_text_paragraph("")
+            elif tipo == "tabela":
+                add_real_table(bloco.get("titulo", ""), bloco.get("linhas", []))
+            else:  # linha
+                add_text_paragraph(bloco.get("texto", ""))
 
     doc.save(str(output_path))
 
