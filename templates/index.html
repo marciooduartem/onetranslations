@@ -9,7 +9,7 @@
   body { font-family: Arial, sans-serif; background: #f5f5f5; min-height: 100vh; display: flex; align-items: flex-start; justify-content: center; padding: 2rem 1rem; }
   .app { background: #fff; border-radius: 12px; box-shadow: 0 2px 16px rgba(0,0,0,0.08); padding: 2rem; width: 100%; max-width: 580px; }
   .header { display: flex; align-items: center; gap: 12px; margin-bottom: 1.5rem; padding-bottom: 1.5rem; border-bottom: 1px solid #eee; }
-  .logo { width: 40px; height: 40px; background: #1a1a1a; border-radius: 8px; display: flex; align-items: center; justify-content: center; color: #fff; font-weight: 700; font-size: 14px; flex-shrink: 0; }
+  .logo { width: 40px; height: 40px; background: #1a1a1a; border-radius: 8px; display: flex; align-items: center; justify-content: center; color: #fff; font-weight: 700; font-size: 14px; }
   .header-text h1 { font-size: 16px; font-weight: 600; }
   .header-text p { font-size: 12px; color: #888; margin-top: 2px; }
   .card { background: #fafafa; border: 1px solid #eee; border-radius: 10px; padding: 1.1rem; margin-bottom: 1rem; }
@@ -19,27 +19,26 @@
   .hint { font-size: 12px; color: #aaa; margin-top: 6px; }
   .hint a { color: #666; }
   .mode-row { display: flex; gap: 8px; margin-bottom: 10px; }
-  .mode-btn { flex: 1; padding: 10px; font-size: 13px; font-weight: 500; border-radius: 8px; cursor: pointer; border: 1.5px solid #e0e0e0; background: #fff; color: #888; transition: all 0.15s; }
+  .mode-btn { flex: 1; padding: 10px; font-size: 13px; font-weight: 500; border-radius: 8px; cursor: pointer; border: 1.5px solid #e0e0e0; background: #fff; color: #888; }
   .mode-btn.active { background: #1a1a1a; color: #fff; border-color: #1a1a1a; }
-  .toggle-row { display: flex; align-items: flex-start; gap: 10px; padding: 10px 12px; border-radius: 8px; border: 1px solid #e0e0e0; cursor: pointer; margin-top: 8px; transition: background 0.15s; user-select: none; }
+  .toggle-row { display: flex; align-items: flex-start; gap: 10px; padding: 10px 12px; border-radius: 8px; border: 1px solid #e0e0e0; cursor: pointer; margin-top: 8px; user-select: none; }
   .toggle-row.active { background: #f0f0f0; border-color: #ccc; }
-  .checkbox { width: 18px; height: 18px; border: 2px solid #ccc; border-radius: 4px; flex-shrink: 0; display: flex; align-items: center; justify-content: center; margin-top: 1px; transition: all 0.15s; font-size: 11px; color: #fff; }
+  .checkbox { width: 18px; height: 18px; border: 2px solid #ccc; border-radius: 4px; flex-shrink: 0; display: flex; align-items: center; justify-content: center; margin-top: 1px; font-size: 11px; color: #fff; }
   .checkbox.checked { background: #1a1a1a; border-color: #1a1a1a; }
   .toggle-text strong { font-size: 13px; display: block; }
   .toggle-text span { font-size: 12px; color: #888; margin-top: 2px; display: block; }
   .info-box { background: #f0f7ff; border: 1px solid #cce0ff; border-radius: 8px; padding: 10px 12px; margin-top: 8px; font-size: 12px; color: #336699; }
-  .drop-zone { border: 2px dashed #ddd; border-radius: 10px; padding: 2rem; text-align: center; cursor: pointer; transition: background 0.15s; }
-  .drop-zone:hover { background: #f0f0f0; border-color: #bbb; }
+  .drop-zone { border: 2px dashed #ddd; border-radius: 10px; padding: 2rem; text-align: center; cursor: pointer; }
+  .drop-zone:hover { background: #f0f0f0; }
   .drop-zone p { font-size: 14px; color: #888; }
   .drop-zone strong { color: #1a1a1a; }
   .file-pill { display: none; align-items: center; gap: 10px; background: #f0f0f0; border-radius: 8px; padding: 10px 14px; }
   .file-pill.show { display: flex; }
   .file-name { flex: 1; font-size: 13px; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .file-size { font-size: 12px; color: #888; flex-shrink: 0; }
-  .remove-btn { background: none; border: none; cursor: pointer; color: #aaa; font-size: 20px; line-height: 1; padding: 0; }
-  .convert-btn { width: 100%; padding: 13px; font-size: 15px; font-weight: 600; background: #1a1a1a; color: #fff; border: none; border-radius: 10px; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 8px; transition: opacity 0.15s; margin-top: 4px; }
+  .remove-btn { background: none; border: none; cursor: pointer; color: #aaa; font-size: 20px; }
+  .convert-btn { width: 100%; padding: 13px; font-size: 15px; font-weight: 600; background: #1a1a1a; color: #fff; border: none; border-radius: 10px; cursor: pointer; margin-top: 4px; }
   .convert-btn:disabled { opacity: 0.35; cursor: not-allowed; }
-  .convert-btn:not(:disabled):hover { opacity: 0.85; }
   .progress-wrap { display: none; margin-top: 1rem; }
   .progress-wrap.show { display: block; }
   .progress-labels { display: flex; justify-content: space-between; font-size: 13px; color: #888; margin-bottom: 6px; }
@@ -52,7 +51,8 @@
   .result-title { font-weight: 600; font-size: 14px; margin-bottom: 4px; }
   .result.success .result-title { color: #2d7d46; }
   .result.error .result-title { color: #c0392b; }
-  .result-sub { font-size: 12px; color: #888; }
+  .result-sub { font-size: 12px; color: #888; margin-bottom: 8px; }
+  .download-btn { display: inline-block; padding: 8px 16px; background: #2d7d46; color: #fff; border-radius: 6px; text-decoration: none; font-size: 13px; font-weight: 500; }
   .hidden { display: none !important; }
 </style>
 </head>
@@ -66,14 +66,12 @@
     </div>
   </div>
 
-  <!-- Chave API sempre visível -->
-  <div class="card">
+  <div class="card" id="api-key-card">
     <span class="card-label">Chave da API Anthropic</span>
     <input type="password" id="api-key" placeholder="sk-ant-api03-..." oninput="updateBtn()" />
-    <p class="hint">Necessária para IA e tradução juramentada. <a href="https://console.anthropic.com/settings/keys" target="_blank">Obter chave</a></p>
+    <p class="hint">Necessária para tradução juramentada. <a href="https://console.anthropic.com/settings/keys" target="_blank">Obter chave</a></p>
   </div>
 
-  <!-- Modo -->
   <div class="card">
     <span class="card-label">Tipo de formatação</span>
     <div class="mode-row">
@@ -81,23 +79,17 @@
       <button class="mode-btn" id="btn-juramentado" onclick="setMode('juramentado')">📜 Tradução Juramentada</button>
     </div>
 
-    <!-- Opções SIMPLES -->
     <div id="simples-options">
-      <div class="toggle-row" id="api-toggle" onclick="toggleApi()">
-        <div class="checkbox" id="api-check"></div>
-        <div class="toggle-text">
-          <strong>🤖 Usar IA</strong>
-          <span>Máxima fidelidade. Necessário para PDFs escaneados.</span>
-        </div>
+      <div class="info-box">
+        📄 Cópia exata do PDF em Word editável: preserva figuras, imagens, tabelas e layout. Carimbos e assinaturas devem ser removidos manualmente após a conversão.
       </div>
     </div>
 
-    <!-- Opções JURAMENTADO -->
     <div id="juramentado-options" class="hidden">
       <div class="info-box">
-        📋 A tradução juramentada usa IA automaticamente para aplicar todas as regras (brasão, carimbo, assinatura...). Cole sua chave acima.
+        📋 Tradução juramentada usa IA para aplicar regras (logotipo, carimbo, assinatura, brasão...) e gerar tabelas reais do Word.
       </div>
-      <div class="toggle-row" id="cetra-toggle" onclick="toggleCetra()" style="margin-top:8px;">
+      <div class="toggle-row" id="cetra-toggle" onclick="toggleCetra()">
         <div class="checkbox" id="cetra-check"></div>
         <div class="toggle-text">
           <strong>Modo CETRA</strong>
@@ -107,16 +99,11 @@
     </div>
   </div>
 
-  <!-- Upload -->
   <div class="card">
     <span class="card-label">Documento PDF</span>
-    <div class="drop-zone" id="drop-zone"
-      onclick="document.getElementById('file-input').click()"
-      ondragover="event.preventDefault()"
-      ondrop="handleDrop(event)">
+    <div class="drop-zone" id="drop-zone" onclick="document.getElementById('file-input').click()" ondragover="event.preventDefault()" ondrop="handleDrop(event)">
       <div style="font-size:28px;margin-bottom:8px">📂</div>
       <p><strong>Clique para selecionar</strong> ou arraste o PDF aqui</p>
-      <p style="font-size:12px;margin-top:4px;color:#aaa">PDFs digitais e escaneados</p>
     </div>
     <div class="file-pill" id="file-pill">
       <span style="font-size:20px">📋</span>
@@ -133,7 +120,7 @@
 
   <div class="progress-wrap" id="progress-wrap">
     <div class="progress-labels">
-      <span id="prog-text">Processando...</span>
+      <span id="prog-text">Iniciando...</span>
       <span id="prog-pct">0%</span>
     </div>
     <div class="progress-bar"><div class="progress-fill" id="prog-fill"></div></div>
@@ -142,14 +129,15 @@
   <div class="result" id="result-box">
     <div class="result-title" id="result-title"></div>
     <div class="result-sub" id="result-sub"></div>
+    <a href="#" id="download-link" class="download-btn hidden">⬇️ Baixar arquivo</a>
   </div>
 </div>
 
 <script>
 let selectedFile = null;
 let mode = 'simples';
-let apiActive = false;
 let cetraActive = false;
+let pollInterval = null;
 
 function setMode(m) {
   mode = m;
@@ -157,15 +145,6 @@ function setMode(m) {
   document.getElementById('btn-juramentado').classList.toggle('active', m === 'juramentado');
   document.getElementById('simples-options').classList.toggle('hidden', m === 'juramentado');
   document.getElementById('juramentado-options').classList.toggle('hidden', m === 'simples');
-  updateBtn();
-}
-
-function toggleApi() {
-  apiActive = !apiActive;
-  document.getElementById('api-toggle').classList.toggle('active', apiActive);
-  const cb = document.getElementById('api-check');
-  cb.classList.toggle('checked', apiActive);
-  cb.textContent = apiActive ? '✓' : '';
   updateBtn();
 }
 
@@ -202,7 +181,7 @@ function removeFile() {
 
 function updateBtn() {
   const apiKey = document.getElementById('api-key').value.trim();
-  const needsKey = mode === 'juramentado' || apiActive;
+  const needsKey = mode === 'juramentado';
   document.getElementById('convert-btn').disabled = !selectedFile || (needsKey && !apiKey);
 }
 
@@ -212,11 +191,18 @@ function setProgress(text, pct) {
   document.getElementById('prog-fill').style.width = pct + '%';
 }
 
-function showResult(ok, title, sub) {
+function showResult(ok, title, sub, jobId) {
   const box = document.getElementById('result-box');
   box.className = 'result show ' + (ok ? 'success' : 'error');
   document.getElementById('result-title').textContent = (ok ? '✅ ' : '❌ ') + title;
   document.getElementById('result-sub').textContent = sub || '';
+  const link = document.getElementById('download-link');
+  if (ok && jobId) {
+    link.href = '/download/' + jobId;
+    link.classList.remove('hidden');
+  } else {
+    link.classList.add('hidden');
+  }
 }
 
 async function startConversion() {
@@ -225,40 +211,51 @@ async function startConversion() {
   document.getElementById('convert-btn').disabled = true;
   document.getElementById('progress-wrap').classList.add('show');
   document.getElementById('result-box').className = 'result';
-  setProgress('Enviando arquivo...', 10);
+  setProgress('Enviando arquivo...', 5);
 
   try {
     const fd = new FormData();
     fd.append('file', selectedFile);
     fd.append('mode', mode);
-    fd.append('use_api', (apiActive || mode === 'juramentado') ? 'true' : 'false');
     fd.append('cetra', cetraActive ? 'true' : 'false');
     fd.append('api_key', apiKey);
 
-    setProgress('Convertendo...', 30);
     const resp = await fetch('/convert', { method: 'POST', body: fd });
+    const data = await resp.json();
+    if (!resp.ok) throw new Error(data.error || 'Erro');
 
-    if (!resp.ok) {
-      const err = await resp.json();
-      throw new Error(err.error || 'Erro na conversão');
-    }
-
-    setProgress('Baixando...', 90);
-    const blob = await resp.blob();
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = selectedFile.name.replace('.pdf', '_convertido.docx');
-    a.click();
-    URL.revokeObjectURL(url);
-
-    setProgress('Concluído!', 100);
-    showResult(true, 'Download iniciado! Verifique sua pasta de Downloads.');
+    pollProgress(data.job_id);
   } catch(e) {
-    showResult(false, 'Erro na conversão', e.message);
-  } finally {
+    showResult(false, 'Erro', e.message);
     document.getElementById('convert-btn').disabled = false;
   }
+}
+
+function pollProgress(jobId) {
+  pollInterval = setInterval(async () => {
+    try {
+      const resp = await fetch('/status/' + jobId);
+      const data = await resp.json();
+      if (data.error) {
+        clearInterval(pollInterval);
+        showResult(false, 'Erro', data.error);
+        document.getElementById('convert-btn').disabled = false;
+        return;
+      }
+      const pct = data.total > 0 ? Math.round((data.current / data.total) * 100) : 10;
+      setProgress(data.message, Math.min(pct, 99));
+      if (data.status === 'done') {
+        clearInterval(pollInterval);
+        setProgress('Concluído!', 100);
+        showResult(true, 'Conversão concluída!', 'Clique abaixo para baixar.', jobId);
+        document.getElementById('convert-btn').disabled = false;
+      } else if (data.status === 'error') {
+        clearInterval(pollInterval);
+        showResult(false, 'Erro na conversão', data.error);
+        document.getElementById('convert-btn').disabled = false;
+      }
+    } catch(e) {}
+  }, 2000);
 }
 </script>
 </body>
