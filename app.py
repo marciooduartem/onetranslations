@@ -3,6 +3,7 @@ import json
 import base64
 import requests
 import uuid
+import threading
 from pathlib import Path
 from flask import Flask, request, jsonify, send_file, render_template
 from flask_cors import CORS
@@ -17,36 +18,21 @@ OUTPUT_FOLDER = Path("outputs")
 UPLOAD_FOLDER.mkdir(exist_ok=True)
 OUTPUT_FOLDER.mkdir(exist_ok=True)
 
-# ── DETECÇÃO PDF ESCANEADO ────────────────────────────────────────
-def is_scanned(pdf_path):
-    try:
-        doc = fitz.open(pdf_path)
-        total_text = ""
-        for page in doc:
-            total_text += page.get_text()
-        doc.close()
-        return len(total_text.strip()) < 50
-    except:
-        return True
-
-# ── CONVERSÃO DIRETA PDF → DOCX ───────────────────────────────────
-def convert_direct(pdf_path, output_path):
-    cv = Converter(str(pdf_path))
-    cv.convert(str(output_path))
-    cv.close()
+# ── ESTADO DOS JOBS (em memória) ──────────────────────────────────
+JOBS = {}  # job_id → {status, current, total, message, output_path, error}
 
 # ── PROMPTS ───────────────────────────────────────────────────────
-PROMPT_SIMPLES = """Extraia o conteúdo da página e retorne SOMENTE JSON válido.
-{"blocks":[{"type":"heading"|"paragraph"|"table","runs":[{"text":"...","bold":false,"italic":false,"superscript":false,"subscript":false,"color":null}],"align":"left"|"center"|"right"|"justify","table":{"header_bg":"D9D9D9","border_color":"000000","rows":[{"cells":[{"runs":[{"text":"...","bold":false}],"bg":null}]}]}}]}
-REGRAS:
-- runs: trechos com formatação diferente viram runs separados. Negrito parcial DEVE ser separado.
-- Tabelas: detecte cor de fundo de cada célula visualmente
-- Títulos numerados (1., 4.1., 4.1.1.): type "heading"
-- Sobrescrito: superscript:true. Subscrito: subscript:true
-- Símbolos especiais (α, μ, Ø, ≤, ≥): preservar exatamente
-- Texto colorido: color:"RRGGBB" (hex sem #, null se preto)
-- Preserve exatamente o texto com acentos e pontuação
-- Ignore logo, cabeçalho repetitivo de página, assinaturas, carimbos"""
+PROMPT_SIMPLES_TABELAS = """Extraia APENAS as tabelas desta página e retorne SOMENTE JSON válido.
+{"tabelas":[{"linhas":[["col1","col2"],["dado1","dado2"]]}]}
+
+REGRAS CRÍTICAS:
+- Leia a tabela SEMPRE de cima para baixo, da esquerda para a direita
+- Primeira linha de cada tabela é o cabeçalho
+- Preserve TODAS as células, mesmo se vazias (use "" para célula vazia)
+- Se há células mescladas no cabeçalho, repita o valor mesclado em cada célula
+- Preserve exatamente o texto com acentos, símbolos e pontuação
+- NÃO inclua texto fora de tabelas
+- Se não houver tabelas na página, retorne {"tabelas":[]}"""
 
 PROMPT_JURAMENTADO = """Você é especialista em formatação de traduções juramentadas brasileiras.
 Analise a imagem e retorne SOMENTE JSON válido:
@@ -56,75 +42,58 @@ Analise a imagem e retorne SOMENTE JSON válido:
   {"tipo":"tabela","titulo":"Table 1...","linhas":[["col1","col2"],["dado1","dado2"]]}
 ]}
 
-ESTRUTURA:
-- "blocos" é uma lista ordenada de elementos do documento
-- Cada bloco é "linha" (texto), "vazia" (espaçamento) ou "tabela" (tabela com linhas)
-- Para tabela: "linhas" é array de arrays — primeira é o cabeçalho, demais são dados
+LEITURA DE TABELAS — CRÍTICO:
+- Leia SEMPRE de cima para baixo, da esquerda para a direita
+- Primeira linha do array "linhas" é o cabeçalho
+- Cada linha seguinte é uma linha de dados
+- Preserve TODAS as células (use "" se vazia)
+- Células mescladas no cabeçalho: repita o valor em cada célula que ela cobre
 
 SUBSTITUIÇÕES VISUAIS OBRIGATÓRIAS:
 - Logotipo legível → bloco "linha" com "[Consta logotipo]" + blocos seguintes com texto do logo
-- Brasão/armas → "[Consta brasão de (nome do país/estado)]"
-- Selo oficial → "[Consta selo de (nome do país/estado/instituição)]"
+- Brasão/armas → "[Consta brasão de (país/estado)]"
+- Selo oficial → "[Consta selo de (país/estado/instituição)]"
 - Foto de pessoa → "[Consta fotografia]"
 - Imagem única → "[Consta imagem]"
 - Múltiplas imagens → "[Constam imagens]"
-- Figura técnica com texto → "[Consta figura]" + linhas seguintes com texto
+- Figura técnica com texto → "[Consta figura]" + linhas com texto
 - Desenho técnico → "[Consta desenho técnico]" ou "[Constam desenhos técnicos]"
 - Gráfico → "[Consta gráfico]"
 - Diagrama → "[Consta diagrama]"
 - QR Code → "[Consta código QR]"
 - Assinatura → "[Consta assinatura]" ou "[Constam assinaturas]"
-- Carimbo legível → "[Consta carimbo]" + linhas seguintes com texto do carimbo
+- Carimbo legível → "[Consta carimbo]" + linhas com texto do carimbo
 - Carimbo ilegível → "[Consta carimbo ilegível]"
 - Texto ilegível → "[Ilegível]"
 - Palavras riscadas → NÃO incluir
 
 REGRAS DE FORMATAÇÃO:
-- Itens numerados (1., 2., 3.) devem estar em UMA LINHA SÓ: "1. Trademark: FERRARI"
-- TABELAS devem ser blocos tipo "tabela" com array bidimensional
-- Quando houver título "Table X. ..." antes da tabela, inclua no campo "titulo"
-- Preserve exatamente o texto com acentos, maiúsculas, pontuação e símbolos
-
-EXEMPLO de saída:
-{"idioma":"en","blocos":[
-  {"tipo":"linha","texto":"[Consta figura]"},
-  {"tipo":"linha","texto":"ITU"},
-  {"tipo":"vazia"},
-  {"tipo":"linha","texto":"1. Trademark: FERRARI"},
-  {"tipo":"vazia"},
-  {"tipo":"tabela","titulo":"Table 1. Intra mode number","linhas":[
-    ["PU size","HM5.0","Proposed"],
-    ["4x4","18","35"],
-    ["8x8","35","35"]
-  ]}
-]}"""
+- Itens numerados (1., 2., 3.) em UMA LINHA SÓ: "1. Trademark: FERRARI"
+- Subitens (16.1., 16.2.) também em uma linha
+- Preserve acentos, maiúsculas, símbolos especiais"""
 
 PROMPT_CETRA_EXTRA = """
 MODO CETRA ATIVADO:
 - Documentos bilíngues: manter APENAS o texto em inglês
-- Exceções mantidas: cabeçalho e nomes de cargos/referências institucionais
+- Exceções: cabeçalho e nomes de cargos/referências institucionais
 - Palavras riscadas: NUNCA incluir
-- Rodapé repetitivo: incluir APENAS na última página, precedido de [consta nota de rodapé]
+- Rodapé repetitivo: incluir APENAS na última página, precedido de "[consta nota de rodapé]"
 - Imagens com título "Drawing No. X": incluir título + citação
 - Numeração: corrigir pontos faltantes (1.11 → 1.1.1)"""
 
 # ── EXTRAÇÃO VIA CLAUDE API ───────────────────────────────────────
-def extract_page_claude(image_bytes, page_num, api_key, mode, cetra):
+def extract_page_claude(image_bytes, api_key, system_prompt):
     b64 = base64.b64encode(image_bytes).decode()
-    if mode == "juramentado":
-        system = PROMPT_JURAMENTADO + (PROMPT_CETRA_EXTRA if cetra else "")
-    else:
-        system = PROMPT_SIMPLES
     resp = requests.post(
         "https://api.anthropic.com/v1/messages",
         headers={"Content-Type": "application/json", "x-api-key": api_key, "anthropic-version": "2023-06-01"},
         json={
             "model": "claude-opus-4-5",
             "max_tokens": 4000,
-            "system": system,
+            "system": system_prompt,
             "messages": [{"role": "user", "content": [
                 {"type": "image", "source": {"type": "base64", "media_type": "image/jpeg", "data": b64}},
-                {"type": "text", "text": f"Página {page_num}. Retorne JSON."}
+                {"type": "text", "text": "Retorne SOMENTE o JSON."}
             ]}]
         },
         timeout=120
@@ -152,7 +121,7 @@ def build_docx_juramentado(all_pages, output_path):
     doc.styles["Normal"].font.name = "Arial"
     doc.styles["Normal"].font.size = Pt(12)
 
-    def add_text_paragraph(texto, centered=False):
+    def add_text(texto):
         p = doc.add_paragraph()
         p.paragraph_format.space_before = Pt(0)
         p.paragraph_format.space_after = Pt(0)
@@ -164,14 +133,12 @@ def build_docx_juramentado(all_pages, output_path):
             run.font.name = "Arial"
             run.font.size = Pt(12)
             stripped = texto.strip()
-            if centered or (stripped.isupper() and len(stripped) < 80 and not stripped.startswith("[")):
+            if stripped.isupper() and len(stripped) < 80 and not stripped.startswith("["):
                 p.alignment = WD_ALIGN_PARAGRAPH.CENTER
             else:
                 p.alignment = WD_ALIGN_PARAGRAPH.LEFT
-        return p
 
-    def add_real_table(titulo, linhas):
-        # Título da tabela
+    def add_table_real(titulo, linhas):
         if titulo:
             p = doc.add_paragraph()
             p.alignment = WD_ALIGN_PARAGRAPH.CENTER
@@ -179,19 +146,16 @@ def build_docx_juramentado(all_pages, output_path):
             run.bold = True
             run.font.name = "Arial"
             run.font.size = Pt(11)
-        # Tabela
         if not linhas: return
         num_cols = max(len(r) for r in linhas)
         if num_cols == 0: return
         table = doc.add_table(rows=len(linhas), cols=num_cols)
         table.style = "Table Grid"
-        table.alignment = WD_ALIGN_PARAGRAPH.CENTER
         for ri, linha in enumerate(linhas):
             for ci in range(num_cols):
                 cell = table.cell(ri, ci)
                 cell.text = ""
                 texto = linha[ci] if ci < len(linha) else ""
-                # Cabeçalho com fundo cinza
                 if ri == 0:
                     tcPr = cell._tc.get_or_add_tcPr()
                     shd = OxmlElement("w:shd")
@@ -206,138 +170,91 @@ def build_docx_juramentado(all_pages, output_path):
                 run.font.size = Pt(10)
                 if ri == 0:
                     run.bold = True
-        # Espaço após a tabela
         doc.add_paragraph()
 
-    first_page = True
-    for pi, page_data in enumerate(all_pages):
-        if not first_page:
+    first = True
+    for page_data in all_pages:
+        if not first:
             doc.add_page_break()
-        first_page = False
-
-        # Novo formato: blocos
+        first = False
         blocos = page_data.get("blocos", [])
-
-        # Compatibilidade com formato antigo: linhas
+        # Compatibilidade formato antigo
         if not blocos and page_data.get("linhas"):
-            for linha in page_data["linhas"]:
-                if linha.strip() == "":
-                    blocos.append({"tipo": "vazia"})
-                else:
-                    blocos.append({"tipo": "linha", "texto": linha})
-
+            for l in page_data["linhas"]:
+                blocos.append({"tipo": "vazia" if l.strip() == "" else "linha", "texto": l})
         for bloco in blocos:
             tipo = bloco.get("tipo", "linha")
             if tipo == "vazia":
-                add_text_paragraph("")
+                add_text("")
             elif tipo == "tabela":
-                add_real_table(bloco.get("titulo", ""), bloco.get("linhas", []))
-            else:  # linha
-                add_text_paragraph(bloco.get("texto", ""))
-
-    doc.save(str(output_path))
-
-# ── BUILDER SIMPLES ───────────────────────────────────────────────
-def build_docx_simples(all_pages, output_path):
-    from docx import Document
-    from docx.shared import Pt, Cm, RGBColor
-    from docx.enum.text import WD_ALIGN_PARAGRAPH
-    from docx.oxml.ns import qn
-    from docx.oxml import OxmlElement
-    import re
-
-    INDENT = {1: 0, 2: 504, 3: 1080, 4: 1656}
-    HANG   = {1: 360, 2: 432, 3: 504, 4: 576}
-
-    def detect_level(runs):
-        text = "".join(r.get("text","") for r in (runs or []))
-        m = re.match(r'^(\d+(?:\.\d+)*)\.?\s', text)
-        return len(m.group(1).split(".")) if m else None
-
-    doc = Document()
-    for section in doc.sections:
-        section.top_margin = Cm(2)
-        section.bottom_margin = Cm(2)
-        section.left_margin = Cm(2.5)
-        section.right_margin = Cm(2.5)
-    doc.styles["Normal"].font.name = "Arial"
-    doc.styles["Normal"].font.size = Pt(10)
-
-    def add_runs(para, runs, size_pt=10):
-        for r in (runs or []):
-            run = para.add_run(r.get("text",""))
-            run.bold = r.get("bold", False)
-            run.italic = r.get("italic", False)
-            run.font.name = "Arial"
-            run.font.size = Pt(size_pt)
-            if r.get("superscript"): run.font.superscript = True
-            if r.get("subscript"): run.font.subscript = True
-            if r.get("color"):
-                try:
-                    c = r["color"].lstrip("#")
-                    run.font.color.rgb = RGBColor(int(c[0:2],16), int(c[2:4],16), int(c[4:6],16))
-                except: pass
-
-    def add_table(doc, table_data):
-        rows = table_data.get("rows", [])
-        if not rows: return
-        num_cols = max(len(r.get("cells",[])) for r in rows)
-        if num_cols == 0: return
-        table = doc.add_table(rows=len(rows), cols=num_cols)
-        table.style = "Table Grid"
-        for ri, row in enumerate(rows):
-            for ci in range(num_cols):
-                cell = table.cell(ri, ci)
-                cell.text = ""
-                cells = row.get("cells", [])
-                if ci < len(cells):
-                    cell_data = cells[ci]
-                    bg = cell_data.get("bg") or (table_data.get("header_bg","D9D9D9") if ri==0 else None)
-                    if bg:
-                        tc = cell._tc
-                        tcPr = tc.get_or_add_tcPr()
-                        shd = OxmlElement("w:shd")
-                        shd.set(qn("w:val"), "clear")
-                        shd.set(qn("w:color"), "auto")
-                        shd.set(qn("w:fill"), bg.lstrip("#"))
-                        tcPr.append(shd)
-                    para = cell.paragraphs[0]
-                    para.alignment = WD_ALIGN_PARAGRAPH.CENTER if ri==0 else WD_ALIGN_PARAGRAPH.LEFT
-                    add_runs(para, cell_data.get("runs",[]), size_pt=9)
-        doc.add_paragraph()
-
-    for pi, page_data in enumerate(all_pages):
-        if pi > 0: doc.add_page_break()
-        blocks = page_data.get("blocks", [])
-        cur_lvl = 1
-        for block in blocks:
-            runs = block.get("runs", [])
-            align = block.get("align", "justify")
-            btype = block.get("type", "paragraph")
-            if btype == "table":
-                add_table(doc, block.get("table", {}))
-                continue
-            lvl = detect_level(runs)
-            p = doc.add_paragraph()
-            align_map = {"left": WD_ALIGN_PARAGRAPH.LEFT, "center": WD_ALIGN_PARAGRAPH.CENTER,
-                         "right": WD_ALIGN_PARAGRAPH.RIGHT, "justify": WD_ALIGN_PARAGRAPH.JUSTIFY}
-            if lvl is not None:
-                cur_lvl = lvl
-                left = (INDENT.get(lvl,0) + HANG.get(lvl,360))
-                p.paragraph_format.left_indent = Pt(left/20)
-                p.paragraph_format.first_line_indent = Pt(-HANG.get(lvl,360)/20)
-                p.alignment = WD_ALIGN_PARAGRAPH.JUSTIFY
+                add_table_real(bloco.get("titulo", ""), bloco.get("linhas", []))
             else:
-                left = (INDENT.get(cur_lvl,0) + HANG.get(cur_lvl,0))
-                if left > 0: p.paragraph_format.left_indent = Pt(left/20)
-                p.alignment = align_map.get(align, WD_ALIGN_PARAGRAPH.JUSTIFY)
-            p.paragraph_format.space_before = Pt(2)
-            p.paragraph_format.space_after = Pt(4)
-            add_runs(p, runs)
-
+                add_text(bloco.get("texto", ""))
     doc.save(str(output_path))
 
-# ── ROTA PRINCIPAL ────────────────────────────────────────────────
+# ── BUILDER SIMPLES (pdf2docx + remoção de carimbos/assinaturas) ─
+def build_docx_simples(pdf_path, output_path):
+    """
+    Usa pdf2docx para preservar tudo (incluindo imagens originais).
+    Carimbos/assinaturas serão removidos manualmente pelo usuário ou via IA opcional.
+    """
+    cv = Converter(str(pdf_path))
+    cv.convert(str(output_path))
+    cv.close()
+
+# ── PROCESSAMENTO EM BACKGROUND ───────────────────────────────────
+def process_juramentado_async(job_id, pdf_path, output_path, api_key, cetra):
+    try:
+        doc = fitz.open(str(pdf_path))
+        total = len(doc)
+        JOBS[job_id]["total"] = total
+        all_pages = []
+        system = PROMPT_JURAMENTADO + (PROMPT_CETRA_EXTRA if cetra else "")
+
+        for page_num in range(total):
+            JOBS[job_id]["current"] = page_num + 1
+            JOBS[job_id]["message"] = f"Processando página {page_num + 1} de {total}..."
+            page = doc[page_num]
+            mat = fitz.Matrix(1.5, 1.5)
+            pix = page.get_pixmap(matrix=mat)
+            img_bytes = pix.tobytes("jpeg")
+            try:
+                data = extract_page_claude(img_bytes, api_key, system)
+                all_pages.append(data)
+            except Exception as e:
+                all_pages.append({"blocos": [{"tipo": "linha", "texto": f"[Erro na página {page_num+1}: {str(e)[:100]}]"}]})
+        doc.close()
+
+        JOBS[job_id]["message"] = "Gerando arquivo Word..."
+        build_docx_juramentado(all_pages, output_path)
+        JOBS[job_id]["status"] = "done"
+        JOBS[job_id]["message"] = "Concluído!"
+    except Exception as e:
+        JOBS[job_id]["status"] = "error"
+        JOBS[job_id]["error"] = str(e)
+    finally:
+        if pdf_path.exists():
+            try: pdf_path.unlink()
+            except: pass
+
+def process_simples_async(job_id, pdf_path, output_path):
+    try:
+        JOBS[job_id]["message"] = "Convertendo PDF preservando layout, imagens e tabelas..."
+        JOBS[job_id]["total"] = 1
+        JOBS[job_id]["current"] = 0
+        build_docx_simples(pdf_path, output_path)
+        JOBS[job_id]["current"] = 1
+        JOBS[job_id]["status"] = "done"
+        JOBS[job_id]["message"] = "Concluído!"
+    except Exception as e:
+        JOBS[job_id]["status"] = "error"
+        JOBS[job_id]["error"] = str(e)
+    finally:
+        if pdf_path.exists():
+            try: pdf_path.unlink()
+            except: pass
+
+# ── ROTAS ─────────────────────────────────────────────────────────
 @app.route("/")
 def index():
     return render_template("index.html")
@@ -346,68 +263,63 @@ def index():
 def convert():
     if "file" not in request.files:
         return jsonify({"error": "Nenhum arquivo enviado"}), 400
-
     file = request.files["file"]
     mode = request.form.get("mode", "simples")
-    use_api = request.form.get("use_api", "false") == "true"
     cetra = request.form.get("cetra", "false") == "true"
     api_key = request.form.get("api_key", "")
 
-    pdf_id = str(uuid.uuid4())
-    pdf_path = UPLOAD_FOLDER / f"{pdf_id}.pdf"
-    output_path = OUTPUT_FOLDER / f"{pdf_id}.docx"
+    job_id = str(uuid.uuid4())
+    pdf_path = UPLOAD_FOLDER / f"{job_id}.pdf"
+    output_path = OUTPUT_FOLDER / f"{job_id}.docx"
     file.save(str(pdf_path))
 
-    try:
-        # JURAMENTADO → sempre usa API
-        if mode == "juramentado":
-            if not api_key:
-                return jsonify({"error": "A tradução juramentada requer a chave de API."}), 400
-            all_pages = process_with_claude(pdf_path, api_key, mode, cetra)
-            build_docx_juramentado(all_pages, output_path)
+    original_name = Path(file.filename).stem
+    JOBS[job_id] = {
+        "status": "processing",
+        "current": 0,
+        "total": 0,
+        "message": "Iniciando...",
+        "output_path": str(output_path),
+        "filename": f"{original_name}_convertido.docx",
+        "error": None
+    }
 
-        # SIMPLES COM IA ou PDF ESCANEADO
-        elif use_api or is_scanned(pdf_path):
-            if not api_key:
-                return jsonify({"error": "Cole sua chave de API para usar a IA."}), 400
-            all_pages = process_with_claude(pdf_path, api_key, mode, cetra)
-            build_docx_simples(all_pages, output_path)
+    if mode == "juramentado":
+        if not api_key:
+            del JOBS[job_id]
+            return jsonify({"error": "A tradução juramentada requer a chave de API."}), 400
+        thread = threading.Thread(target=process_juramentado_async, args=(job_id, pdf_path, output_path, api_key, cetra))
+    else:
+        thread = threading.Thread(target=process_simples_async, args=(job_id, pdf_path, output_path))
 
-        # SIMPLES SEM IA → conversão direta
-        else:
-            convert_direct(pdf_path, output_path)
+    thread.daemon = True
+    thread.start()
+    return jsonify({"job_id": job_id})
 
-        original_name = Path(file.filename).stem
-        return send_file(
-            str(output_path),
-            as_attachment=True,
-            download_name=f"{original_name}_convertido.docx",
-            mimetype="application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-        )
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
-    finally:
-        if pdf_path.exists():
-            pdf_path.unlink()
+@app.route("/status/<job_id>")
+def status(job_id):
+    job = JOBS.get(job_id)
+    if not job:
+        return jsonify({"error": "Job não encontrado"}), 404
+    return jsonify({
+        "status": job["status"],
+        "current": job["current"],
+        "total": job["total"],
+        "message": job["message"],
+        "error": job.get("error")
+    })
 
-def process_with_claude(pdf_path, api_key, mode, cetra):
-    doc = fitz.open(str(pdf_path))
-    all_pages = []
-    for page_num in range(len(doc)):
-        page = doc[page_num]
-        mat = fitz.Matrix(1.5, 1.5)
-        pix = page.get_pixmap(matrix=mat)
-        img_bytes = pix.tobytes("jpeg")
-        try:
-            data = extract_page_claude(img_bytes, page_num + 1, api_key, mode, cetra)
-            all_pages.append(data)
-        except Exception as e:
-            if mode == "juramentado":
-                all_pages.append({"linhas": [f"[Erro na página {page_num+1}: {str(e)}]"]})
-            else:
-                all_pages.append({"blocks": [{"type": "paragraph", "runs": [{"text": f"[Erro na página {page_num+1}]"}], "align": "left"}]})
-    doc.close()
-    return all_pages
+@app.route("/download/<job_id>")
+def download(job_id):
+    job = JOBS.get(job_id)
+    if not job or job["status"] != "done":
+        return jsonify({"error": "Arquivo não disponível"}), 404
+    return send_file(
+        job["output_path"],
+        as_attachment=True,
+        download_name=job["filename"],
+        mimetype="application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+    )
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
